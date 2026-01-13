@@ -1,0 +1,23 @@
+import matplotlib.pyplot as plt
+
+# Number of carbons for the first 10 linear alkanes (methane to decane)
+carbons = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# Corresponding normal boiling points (°C) for linear alkanes
+# methane, ethane, propane, butane, pentane, hexane, heptane, octane, nonane, decane
+boiling_points_c = [-161.5, -88.6, -42.1, -0.5, 36.1, 68.7, 98.4, 125.6, 150.8, 174.1]
+
+# Create scatterplot
+plt.figure(figsize=(7, 5))
+plt.scatter(carbons, boiling_points_c)
+
+# Add labels and title
+plt.title("Boiling Point vs. Number of Carbons (Linear Alkanes)")
+plt.xlabel("Number of Carbons")
+plt.ylabel("Boiling Point (°C)")
+
+# Optional: make x-axis show every integer carbon count
+plt.xticks(carbons)
+
+plt.tight_layout()
+plt.show()
