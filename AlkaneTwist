@@ -1,0 +1,32 @@
+import matplotlib.pyplot as plt
+
+# --- Alkanes (C1–C10): methane to decane ---
+carbons_alkanes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+bp_alkanes_c = [-161.5, -88.6, -42.1, -0.5, 36.1, 68.7, 98.4, 125.6, 150.8, 174.1]
+
+# --- Alkenes (C2–C11): ethene to 1-undecene (10 compounds) ---
+carbons_alkenes = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+bp_alkenes_c = [-103.7, -47.6, -6.3, 30.0, 63.3, 94.3, 121.3, 146.3, 170.8, 195.5]
+
+# --- Alkynes (C2–C11): ethyne to 1-undecyne (10 compounds) ---
+carbons_alkynes = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+bp_alkynes_c = [-84.0, -23.2, 8.1, 40.2, 71.0, 100.9, 126.8, 151.6, 174.1, 197.0]
+
+plt.figure(figsize=(8, 5))
+
+# Scatter series (Matplotlib will automatically use different default colors)
+plt.scatter(carbons_alkanes, bp_alkanes_c, label="n-Alkanes")
+plt.scatter(carbons_alkenes, bp_alkenes_c, label="1-Alkenes")
+plt.scatter(carbons_alkynes, bp_alkynes_c, label="1-Alkynes")
+
+plt.title("Boiling Point vs. Number of Carbons (Alkanes, Alkenes, Alkynes)")
+plt.xlabel("Number of Carbons")
+plt.ylabel("Boiling Point (°C)")
+
+# Integer ticks covering the full range shown
+all_carbons = sorted(set(carbons_alkanes + carbons_alkenes + carbons_alkynes))
+plt.xticks(all_carbons)
+
+plt.legend()
+plt.tight_layout()
+plt.show()
