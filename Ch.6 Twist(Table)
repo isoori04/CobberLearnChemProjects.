@@ -1,0 +1,88 @@
+# rdkit_descriptors_table.py
+# Requirements:
+#   conda install -c conda-forge rdkit
+
+from rdkit import Chem
+from rdkit.Chem import Descriptors
+from rdkit.Chem import rdMolDescriptors
+
+
+def build_molecule(smiles: str) -> Chem.Mol:
+    smiles = smiles.strip()
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        raise ValueError(f"Invalid SMILES string: {smiles!r}")
+    Chem.SanitizeMol(mol)
+    return mol
+
+
+def calculate_descriptors(mol: Chem.Mol) -> dict:
+    return {
+        "Exact Molecular Weight (Da)": Descriptors.ExactMolWt(mol),
+        "H-Bond Donors (HBD)": rdMolDescriptors.CalcNumHBD(mol),
+        "H-Bond Acceptors (HBA)": rdMolDescriptors.CalcNumHBA(mol),
+        "TPSA (Å²)": rdMolDescriptors.CalcTPSA(mol),
+        "LogP (Crippen)": Descriptors.MolLogP(mol),
+    }
+
+
+def render_table(rows: list[tuple[str, str]], headers: tuple[str, str] = ("Property", "Value")) -> str:
+    """
+    Render a 2-column table with box-drawing characters.
+    rows: list of (property, value)
+    """
+    col1_width = max(len(headers[0]), *(len(r[0]) for r in rows))
+    col2_width = max(len(headers[1]), *(len(r[1]) for r in rows))
+
+    def line(left: str, mid: str, right: str, fill: str = "─") -> str:
+        return f"{left}{fill * (col1_width + 2)}{mid}{fill * (col2_width + 2)}{right}"
+
+    def row(c1: str, c2: str) -> str:
+        return f"│ {c1:<{col1_width}} │ {c2:<{col2_width}} │"
+
+    out = []
+    out.append(line("┌", "┬", "┐"))
+    out.append(row(headers[0], headers[1]))
+    out.append(line("├", "┼", "┤"))
+    for r in rows:
+        out.append(row(r[0], r[1]))
+    out.append(line("└", "┴", "┘"))
+    return "\n".join(out)
+
+
+def main():
+    import sys
+
+    if len(sys.argv) > 1:
+        smiles = sys.argv[1].strip()
+    else:
+        smiles = input("Enter a SMILES string (Enter for ethanol 'CCO'): ").strip() or "CCO"
+
+    try:
+        mol = build_molecule(smiles)
+        props = calculate_descriptors(mol)
+        canonical = Chem.MolToSmiles(mol)
+    except Exception as e:
+        rows = [
+            ("Input SMILES", repr(smiles)),
+            ("Error", str(e)),
+        ]
+        print(render_table(rows, headers=("Field", "Message")))
+        return
+
+    # Format values for readability
+    rows = [
+        ("Input SMILES", smiles),
+        ("Canonical SMILES", canonical),
+        ("Exact Molecular Weight (Da)", f"{props['Exact Molecular Weight (Da)']:.6f}"),
+        ("H-Bond Donors (HBD)", str(props["H-Bond Donors (HBD)"])),
+        ("H-Bond Acceptors (HBA)", str(props["H-Bond Acceptors (HBA)"])),
+        ("TPSA (Å²)", f"{props['TPSA (Å²)']:.2f}"),
+        ("LogP (Crippen)", f"{props['LogP (Crippen)']:.3f}"),
+    ]
+
+    print(render_table(rows))
+
+
+if __name__ == "__main__":
+    main()
