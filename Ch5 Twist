@@ -1,0 +1,113 @@
+# theobromine_pubchem_2d_open.py
+# Requires: pip install pubchempy requests
+# Optional (for local 2D rendering): RDKit
+
+import os
+import sys
+import subprocess
+from pathlib import Path
+from typing import Union, Tuple
+
+import pubchempy as pcp
+import requests
+
+
+def _normalize_image_size(image_size: Union[str, int, Tuple[int, int]]) -> str:
+    if isinstance(image_size, str):
+        return image_size.strip().lower()
+    if isinstance(image_size, int):
+        return f"{image_size}x{image_size}"
+    if isinstance(image_size, tuple) and len(image_size) == 2:
+        w, h = image_size
+        return f"{int(w)}x{int(h)}"
+    raise ValueError("image_size must be 'small'/'large', an int, or a (width, height) tuple.")
+
+
+def save_2d_with_rdkit(smiles: str, out_path: Path, size: Tuple[int, int] = (600, 400)) -> bool:
+    try:
+        from rdkit import Chem
+        from rdkit.Chem import Draw
+    except Exception:
+        return False
+
+    try:
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return False
+        img = Draw.MolToImage(mol, size=size)
+        img.save(out_path)
+        return True
+    except Exception:
+        return False
+
+
+def save_2d_from_pubchem(cid: int, out_path: Path, image_size: Union[str, int, Tuple[int, int]] = (600, 600)) -> None:
+    url = f"https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{cid}/PNG"
+    size_str = _normalize_image_size(image_size)
+
+    # Preferred request
+    params = {"record_type": "2d", "image_size": size_str}
+    r = requests.get(url, params=params, timeout=30)
+
+    # Fallbacks if PubChem rejects parameters
+    if r.status_code >= 400:
+        r = requests.get(url, params={"image_size": size_str}, timeout=30)
+    if r.status_code >= 400:
+        r = requests.get(url, params={"record_type": "2d", "image_size": "large"}, timeout=30)
+
+    r.raise_for_status()
+    out_path.write_bytes(r.content)
+
+
+def open_image_file(path: Path) -> None:
+    """
+    Open the image in the OS default viewer (Windows/macOS/Linux).
+    """
+    path = path.resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"Image not found: {path}")
+
+    if sys.platform.startswith("win"):
+        os.startfile(str(path))  # type: ignore[attr-defined]
+    elif sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=False)
+    else:
+        subprocess.run(["xdg-open", str(path)], check=False)
+
+
+def main():
+    query_name = "theobromine"
+    out_file = Path("theobromine_2d.png")
+
+    compounds = pcp.get_compounds(query_name, namespace="name")
+    if not compounds:
+        print(f"No PubChem results found for: {query_name}")
+        return
+
+    c = compounds[0]
+    cid = c.cid
+    formula = getattr(c, "molecular_formula", None)
+    mw = getattr(c, "molecular_weight", None)
+    smiles = getattr(c, "canonical_smiles", None)
+
+    print(f"Query: {query_name}")
+    print(f"CID: {cid}")
+    print(f"Formula: {formula}")
+    print(f"Molecular weight: {mw}")
+    print(f"SMILES: {smiles}")
+
+    # Generate image
+    rendered = False
+    if smiles:
+        rendered = save_2d_with_rdkit(smiles, out_file, size=(600, 400))
+
+    if not rendered:
+        save_2d_from_pubchem(cid, out_file, image_size=(600, 600))
+
+    # Open it automatically
+    print(f"Saved 2D structure image to: {out_file.resolve()}")
+    open_image_file(out_file)
+
+
+if __name__ == "__main__":
+    main()
