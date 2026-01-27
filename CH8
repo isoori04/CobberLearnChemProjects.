@@ -1,0 +1,125 @@
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+
+def main() -> None:
+    # -----------------------------
+    # Data
+    # -----------------------------
+    actual = np.array([2, 4, 5, 4, 5, 7, 9], dtype=float)
+    predicted = np.array([2.5, 3.5, 4, 5, 6, 8, 8], dtype=float)
+    residuals = predicted - actual
+    abs_error = np.abs(residuals)
+
+    # Worst prediction index (largest absolute error)
+    worst_idx = int(np.argmax(abs_error))
+
+    # -----------------------------
+    # Metrics (scikit-learn)
+    # -----------------------------
+    mae = mean_absolute_error(actual, predicted)
+    mse = mean_squared_error(actual, predicted)
+    r2 = r2_score(actual, predicted)
+
+    print("\n=== Model Error Metrics ===")
+    print(f"MAE: {mae:.4f}")
+    print(f"MSE: {mse:.4f}")
+    print(f"R^2: {r2:.4f}")
+
+    # -----------------------------
+    # Improvement #1: Clean table display
+    # -----------------------------
+    df = pd.DataFrame(
+        {
+            "Actual": actual,
+            "Predicted": predicted,
+            "Residual (Pred-Act)": residuals,
+            "|Residual|": abs_error,
+        }
+    )
+    df["Worst?"] = ""
+    df.loc[worst_idx, "Worst?"] = "<-- worst"
+
+    # Pretty print (rounded + no index)
+    print("\n=== Actual vs Predicted (with residuals) ===")
+    print(df.round(3).to_string(index=False))
+
+    # -----------------------------
+    # Output directory for plots
+    # -----------------------------
+    out_dir = Path(__file__).resolve().parent / "ErrorMetrics"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # -----------------------------
+    # Improvement #2: More compelling plots + highlight worst dot
+    # -----------------------------
+
+    # Plot 1: Predicted vs Actual
+    plt.figure(figsize=(6.5, 6.5))
+    plt.scatter(actual, predicted, s=90, alpha=0.75)  # bigger dots
+
+    # Highlight worst point in red
+    plt.scatter(
+        actual[worst_idx],
+        predicted[worst_idx],
+        s=140,
+        edgecolors="black",
+        linewidths=1.0,
+        color="red",
+        zorder=5,
+        label="Worst prediction",
+    )
+
+    # 45-degree reference line
+    min_val = float(min(actual.min(), predicted.min()))
+    max_val = float(max(actual.max(), predicted.max()))
+    plt.plot([min_val, max_val], [min_val, max_val], linewidth=1.2)
+
+    plt.title("Predicted vs Actual", fontsize=14)
+    plt.xlabel("Actual", fontsize=12)
+    plt.ylabel("Predicted", fontsize=12)
+    plt.grid(True, linewidth=0.5)
+    plt.legend()
+
+    pred_path = out_dir / "predicted_vs_actual.png"
+    plt.savefig(pred_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    # Plot 2: Residual plot (residuals vs actual)
+    plt.figure(figsize=(7.0, 4.6))
+    plt.scatter(actual, residuals, s=90, alpha=0.75)
+
+    # Highlight worst residual in red
+    plt.scatter(
+        actual[worst_idx],
+        residuals[worst_idx],
+        s=140,
+        edgecolors="black",
+        linewidths=1.0,
+        color="red",
+        zorder=5,
+    )
+
+    plt.axhline(0, linewidth=1.2)
+
+    # Font improvements for clarity
+    plt.title("Residual Plot (Predicted - Actual)", fontsize=15)
+    plt.xlabel("Actual", fontsize=12)
+    plt.ylabel("Residual", fontsize=12)
+    plt.xticks(fontsize=11)
+    plt.yticks(fontsize=11)
+    plt.grid(True, linewidth=0.5)
+
+    resid_path = out_dir / "residual_plot.png"
+    plt.savefig(resid_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"\nSaved plots to:\n- {pred_path}\n- {resid_path}")
+
+
+if __name__ == "__main__":
+    main()
