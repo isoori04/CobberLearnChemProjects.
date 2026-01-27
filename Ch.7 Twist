@@ -1,0 +1,240 @@
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error
+
+
+# -----------------------------
+# Pretty table (best available):
+# - If `tabulate` is installed: use it (nicest).
+# - Else: use Unicode box-drawing table (no extra deps).
+# -----------------------------
+def _unicode_box_table(df: pd.DataFrame, title: str | None = None, floatfmt: str = "{:.3f}") -> str:
+    df_show = df.copy()
+
+    # Format floats nicely
+    for c in df_show.columns:
+        if pd.api.types.is_float_dtype(df_show[c]):
+            df_show[c] = df_show[c].map(lambda x: "" if pd.isna(x) else floatfmt.format(float(x)))
+
+    df_str = df_show.astype(str)
+
+    # Column widths
+    widths = {col: max(len(col), df_str[col].map(len).max()) for col in df_str.columns}
+    cols = list(df_str.columns)
+
+    # Box characters
+    TL, TR, BL, BR = "┌", "┐", "└", "┘"
+    H, V = "─", "│"
+    T, B, L, R, C = "┬", "┴", "├", "┤", "┼"
+
+    def hline(left, mid, right):
+        parts = [H * (widths[c] + 2) for c in cols]
+        return left + mid.join(parts) + right
+
+    def row(values):
+        cells = []
+        for c, v in zip(cols, values):
+            cells.append(" " + str(v).ljust(widths[c]) + " ")
+        return V + V.join(cells) + V
+
+    lines = []
+    if title:
+        lines.append(title)
+
+    lines.append(hline(TL, T, TR))
+    lines.append(row(cols))
+    lines.append(hline(L, C, R))
+
+    for _, r in df_str.iterrows():
+        lines.append(row(r.values))
+
+    lines.append(hline(BL, B, BR))
+    return "\n".join(lines)
+
+
+def pretty_table(df: pd.DataFrame, title: str | None = None, floatfmt: str = "{:.3f}") -> str:
+    try:
+        from tabulate import tabulate  # pip install tabulate (optional)
+        table = tabulate(
+            df,
+            headers="keys",
+            tablefmt="fancy_grid",
+            showindex=False,
+            floatfmt=floatfmt.replace("{:", "").replace("}", ""),  # e.g., "{:.3f}" -> ".3f"
+        )
+        return (title + "\n" + table) if title else table
+    except Exception:
+        return _unicode_box_table(df, title=title, floatfmt=floatfmt)
+
+
+# -----------------------------
+# 1) Load dataset
+# -----------------------------
+titanic = sns.load_dataset("titanic")
+
+# Output directory (MakingDataWhole folder)
+out_dir = Path(__file__).resolve().parent
+out_dir.mkdir(parents=True, exist_ok=True)
+
+target = "age"
+
+# -----------------------------
+# 2) Split into features/target (train on rows where age is known)
+# -----------------------------
+age = titanic[target]
+known_mask = age.notna()
+
+X = titanic.drop(columns=[target])
+y = age
+
+X_known = X.loc[known_mask].copy()
+y_known = y.loc[known_mask].copy()
+
+# Identify columns by dtype (pandas 2/3 safe)
+numeric_features = X_known.select_dtypes(include=["number", "bool"]).columns.tolist()
+categorical_features = X_known.select_dtypes(include=["object", "category", "string", "str"]).columns.tolist()
+
+# Convert bool -> int
+for col in numeric_features:
+    if X_known[col].dtype == "bool":
+        X_known[col] = X_known[col].astype(int)
+
+# -----------------------------
+# 3) Preprocess + Model pipeline
+# -----------------------------
+numeric_transformer = Pipeline(steps=[("imputer", SimpleImputer(strategy="median"))])
+
+categorical_transformer = Pipeline(
+    steps=[
+        ("imputer", SimpleImputer(strategy="most_frequent")),
+        ("onehot", OneHotEncoder(handle_unknown="ignore")),
+    ]
+)
+
+preprocess = ColumnTransformer(
+    transformers=[
+        ("num", numeric_transformer, numeric_features),
+        ("cat", categorical_transformer, categorical_features),
+    ],
+    remainder="drop",
+)
+
+rf = RandomForestRegressor(
+    n_estimators=500,
+    random_state=42,
+    n_jobs=-1
+)
+
+model = Pipeline(steps=[("preprocess", preprocess), ("rf", rf)])
+
+# -----------------------------
+# 4) Train/test evaluation (MAE)
+# -----------------------------
+X_train, X_test, y_train, y_test = train_test_split(
+    X_known, y_known, test_size=0.25, random_state=42
+)
+
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
+
+mae = mean_absolute_error(y_test, y_pred)
+
+# -----------------------------
+# 5) Clean, pretty console output
+# -----------------------------
+summary_df = pd.DataFrame(
+    {
+        "Metric": ["Rows with known age", "Train rows", "Test rows", "MAE (years)"],
+        "Value": [len(X_known), len(X_train), len(X_test), float(mae)],
+    }
+)
+print(pretty_table(summary_df, title="Random Forest Age Regression — Summary", floatfmt="{:.3f}"))
+
+pred_table = pd.DataFrame({"Actual Age": y_test.to_numpy(), "Predicted Age": y_pred})
+pred_table["Abs Error"] = (pred_table["Actual Age"] - pred_table["Predicted Age"]).abs()
+pred_table = pred_table.sort_values("Abs Error", ascending=False).head(10)
+print()
+print(pretty_table(pred_table, title="Top 10 Largest Absolute Errors (Test Set)", floatfmt="{:.2f}"))
+
+# -----------------------------
+# 6) Plot: Actual vs Predicted (saved)
+# -----------------------------
+plt.figure(figsize=(7, 7))
+plt.scatter(y_test, y_pred, alpha=0.6)
+plt.xlabel("Actual Age")
+plt.ylabel("Predicted Age (Random Forest)")
+plt.title(f"Actual vs Predicted Age (MAE = {mae:.2f} years)")
+
+min_age = float(min(y_test.min(), y_pred.min()))
+max_age = float(max(y_test.max(), y_pred.max()))
+plt.plot([min_age, max_age], [min_age, max_age])
+plt.grid(True, linewidth=0.5)
+
+plot_path = out_dir / "rf_actual_vs_predicted_age.png"
+plt.savefig(plot_path, dpi=300, bbox_inches="tight")
+plt.close()
+print(f"\nSaved plot: {plot_path}")
+
+# -----------------------------
+# 7) Feature importance plot (Top 20)
+# -----------------------------
+pre = model.named_steps["preprocess"]
+feature_names = pre.get_feature_names_out()
+
+importances = model.named_steps["rf"].feature_importances_
+fi = pd.Series(importances, index=feature_names).sort_values(ascending=False).head(20)
+
+plt.figure(figsize=(10, 6))
+fi.sort_values().plot(kind="barh")
+plt.xlabel("Importance")
+plt.title("Top 20 Feature Importances for Predicting Age (Random Forest)")
+plt.grid(True, linewidth=0.5)
+
+fi_path = out_dir / "rf_feature_importances_top20.png"
+plt.savefig(fi_path, dpi=300, bbox_inches="tight")
+plt.close()
+print(f"Saved plot: {fi_path}")
+
+# -----------------------------
+# 8) Impute missing ages on FULL dataset + report mean before/after
+# -----------------------------
+X_full = X.copy()
+
+# Convert bool -> int on full set too
+for col in numeric_features:
+    if col in X_full.columns and X_full[col].dtype == "bool":
+        X_full[col] = X_full[col].astype(int)
+
+pred_full = model.predict(X_full)
+
+titanic["age_rf"] = age.copy()
+missing_mask = titanic["age_rf"].isna()
+titanic.loc[missing_mask, "age_rf"] = pred_full[missing_mask]
+
+avg_before = float(age.mean(skipna=True))
+avg_after = float(titanic["age_rf"].mean())
+missing_after = int(titanic["age_rf"].isna().sum())
+
+means_df = pd.DataFrame(
+    {
+        "Measure": ["Average age before (known only)", "Average age after (RF imputed)", "Missing after"],
+        "Value": [avg_before, avg_after, float(missing_after)],
+    }
+)
+print()
+print(pretty_table(means_df, title="Age Means — Before vs After RF Imputation", floatfmt="{:.3f}"))
+
+csv_path = out_dir / "titanic_with_age_rf.csv"
+titanic.to_csv(csv_path, index=False)
+print(f"\nSaved dataset with RF-imputed age column: {csv_path}")
