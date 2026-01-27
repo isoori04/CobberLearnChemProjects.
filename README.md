@@ -6,4 +6,5 @@ In ch5 twist, with help of AI, a script was created to display cursory chemical 
 IN ch6, two descriptors were added, HBA and Crippen. For the twist, I asked the agent to clean up the output and put the data output into a neat table.
 
 In chapter 7, we learned how to calculate imputations based on the incomplete age data for passengers aboard the Titanic. My twist was to organize the data further.
+
 In chapter 8, residual plots were created. They were then improved by making the worst prediction obvious, improved plots, and worst row in the table made obvious.
