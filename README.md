@@ -8,3 +8,5 @@ IN ch6, two descriptors were added, HBA and Crippen. For the twist, I asked the 
 In chapter 7, we learned how to calculate imputations based on the incomplete age data for passengers aboard the Titanic. My twist was to organize the data further.
 
 In chapter 8, residual plots were created. They were then improved by making the worst prediction obvious, improved plots, and worst row in the table made obvious.
+
+CHapter 9: Built and trained a DecisionTreeClassifier in scikit-learn to predict water solubility (0/1) from molecular features (molecular weight and hydrogen-bond donor/acceptor counts). Visualized and saved the learned decision rules with plot_tree, then experimented with model customization (feature selection, max_depth, and intentionally changing a label) to see how the tree adapts.(generated with Chat GPT assistance)
