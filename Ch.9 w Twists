@@ -1,0 +1,95 @@
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+
+# -----------------------------
+# 1) Build the original DataFrame
+# -----------------------------
+molecular_weight = [180, 250, 80, 300, 150, 400, 90, 200, 130, 275, 135, 220]
+h_bond_donors = [5, 2, 1, 1, 4, 3, 0, 2, 3, 1, 1, 3]
+h_bond_acceptors = [6, 3, 2, 2, 5, 4, 1, 3, 4, 2, 3, 2]
+water_solubility = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1]
+
+molecules = [f"Molecule {i}" for i in range(1, len(molecular_weight) + 1)]
+df = pd.DataFrame({
+    "Molecular Weight": molecular_weight,
+    "Hydrogen Bond Donors": h_bond_donors,
+    "Hydrogen Bond Acceptors": h_bond_acceptors,
+    "Water Solubility": water_solubility
+}, index=molecules)
+
+# -----------------------------
+# CHANGE A: Train on ONLY Hydrogen Bond Donors
+# -----------------------------
+X = df[["Hydrogen Bond Donors"]]     # only one feature
+y = df["Water Solubility"]
+
+# -----------------------------
+# CHANGE B: Add max_depth to control complexity
+# -----------------------------
+max_depth = 2
+model = DecisionTreeClassifier(random_state=42, max_depth=max_depth)
+model.fit(X, y)
+
+# -----------------------------
+# Plot + Save (original)
+# CHANGE C: Adjust font size (and optional node colors via filled=True)
+# -----------------------------
+output_dir = "DecisionTreeClassifier"
+os.makedirs(output_dir, exist_ok=True)
+
+plt.figure(figsize=(10, 6))
+plot_tree(
+    model,
+    feature_names=list(X.columns),
+    class_names=["Not water-soluble (0)", "Water-soluble (1)"],
+    filled=True,
+    rounded=True,
+    fontsize=14  # <-- font size change
+)
+plt.title(f"Tree (Donors Only) | max_depth={max_depth}", fontsize=16)
+plt.tight_layout()
+
+outpath1 = os.path.join(output_dir, "tree_donors_only_original.png")
+plt.savefig(outpath1, dpi=300, bbox_inches="tight")
+plt.show()
+print(f"Saved: {outpath1}")
+
+# -----------------------------
+# CHANGE D: Deliberately change one solubility label and retrain
+# Example: flip Molecule 2 from 0 -> 1 (you can pick any)
+# -----------------------------
+df_modified = df.copy()
+df_modified.loc["Molecule 2", "Water Solubility"] = 1  # deliberate label change
+
+X2 = df_modified[["Hydrogen Bond Donors"]]
+y2 = df_modified["Water Solubility"]
+
+model2 = DecisionTreeClassifier(random_state=42, max_depth=max_depth)
+model2.fit(X2, y2)
+
+plt.figure(figsize=(10, 6))
+plot_tree(
+    model2,
+    feature_names=list(X2.columns),
+    class_names=["Not water-soluble (0)", "Water-soluble (1)"],
+    filled=True,
+    rounded=True,
+    fontsize=14
+)
+plt.title("Tree After Flipping Molecule 2 Solubility (0→1)", fontsize=16)
+plt.tight_layout()
+
+outpath2 = os.path.join(output_dir, "tree_donors_only_modified_label.png")
+plt.savefig(outpath2, dpi=300, bbox_inches="tight")
+plt.show()
+print(f"Saved: {outpath2}")
+
+# -----------------------------
+# Optional: Quick comparison prints
+# -----------------------------
+print("\nOriginal label for Molecule 2:", df.loc["Molecule 2", "Water Solubility"])
+print("Modified label for Molecule 2:", df_modified.loc["Molecule 2", "Water Solubility"])
+print("Training accuracy (original):", model.score(X, y))
+print("Training accuracy (modified):", model2.score(X2, y2))
