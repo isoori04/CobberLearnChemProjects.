@@ -1,0 +1,280 @@
+import csv
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+
+
+def get_group_data(group_choice: str):
+    """
+    Return rows, raw filename, fixed filename, and title for group 1-8.
+    Columns: element_name, symbol, atomic_number, atomic_radius_pm, first_ionization_energy_kj_per_mol
+    """
+    group_map = {
+        "1": {
+            "title": "Group 1 Elements",
+            "raw": "group1_elements.csv",
+            "fixed": "group1_elements_fixed.csv",
+            "rows": [
+                ["Hydrogen", "H", 1, 53, 1312.0],
+                ["Lithium", "Li", 3, 167, 520.2],
+                ["Sodium", "Na", 11, 190, 495.8],
+                ["Potassium", "K", 19, 243, 418.8],
+                ["Rubidium", "Rb", 37, 265, 403.0],
+                ["Cesium", "Cs", 55, 298, 375.7],
+                ["Francium", "Fr", 87, 348, 380.0],
+            ],
+        },
+        "2": {
+            "title": "Group 2 Elements",
+            "raw": "group2_elements.csv",
+            "fixed": "group2_elements_fixed.csv",
+            "rows": [
+                ["Beryllium", "Be", 4, 112, 899.5],
+                ["Magnesium", "Mg", 12, 160, 737.7],
+                ["Calcium", "Ca", 20, 197, 589.8],
+                ["Strontium", "Sr", 38, 215, 549.5],
+                ["Barium", "Ba", 56, 217, 502.9],
+                ["Radium", "Ra", 88, 221, 509.3],
+            ],
+        },
+        "3": {
+            "title": "Group 3 (13) Elements",
+            "raw": "group3_elements.csv",
+            "fixed": "group3_elements_fixed.csv",
+            "rows": [
+                ["Boron", "B", 5, 87, 800.6],
+                ["Aluminum", "Al", 13, 143, 577.5],
+                ["Gallium", "Ga", 31, 135, 578.8],
+                ["Indium", "In", 49, 167, 558.3],
+                ["Thallium", "Tl", 81, 170, 589.4],
+            ],
+        },
+        "4": {
+            "title": "Group 4 (14) Elements",
+            "raw": "group4_elements.csv",
+            "fixed": "group4_elements_fixed.csv",
+            "rows": [
+                ["Carbon", "C", 6, 67, 1086.5],
+                ["Silicon", "Si", 14, 111, 786.5],
+                ["Germanium", "Ge", 32, 125, 762.0],
+                ["Tin", "Sn", 50, 145, 708.6],
+                ["Lead", "Pb", 82, 154, 715.6],
+            ],
+        },
+        "5": {
+            "title": "Group 5 (15) Elements",
+            "raw": "group5_elements.csv",
+            "fixed": "group5_elements_fixed.csv",
+            "rows": [
+                ["Nitrogen", "N", 7, 56, 1402.3],
+                ["Phosphorus", "P", 15, 98, 1011.8],
+                ["Arsenic", "As", 33, 114, 947.0],
+                ["Antimony", "Sb", 51, 133, 834.0],
+                ["Bismuth", "Bi", 83, 143, 703.0],
+            ],
+        },
+        "6": {
+            "title": "Group 6 (16) Elements",
+            "raw": "group6_elements.csv",
+            "fixed": "group6_elements_fixed.csv",
+            "rows": [
+                ["Oxygen", "O", 8, 48, 1313.9],
+                ["Sulfur", "S", 16, 88, 999.6],
+                ["Selenium", "Se", 34, 103, 941.0],
+                ["Tellurium", "Te", 52, 123, 869.3],
+                ["Polonium", "Po", 84, 135, 812.1],
+            ],
+        },
+        "7": {
+            "title": "Group 7 (17) Elements",
+            "raw": "group7_elements.csv",
+            "fixed": "group7_elements_fixed.csv",
+            "rows": [
+                ["Fluorine", "F", 9, 42, 1681.0],
+                ["Chlorine", "Cl", 17, 79, 1251.2],
+                ["Bromine", "Br", 35, 94, 1139.9],
+                ["Iodine", "I", 53, 115, 1008.4],
+                ["Astatine", "At", 85, 127, 899.0],
+            ],
+        },
+        "8": {
+            "title": "Group 8 (18, Noble Gases)",
+            "raw": "group8_elements.csv",
+            "fixed": "group8_elements_fixed.csv",
+            "rows": [
+                ["Helium", "He", 2, 31, 2372.3],
+                ["Neon", "Ne", 10, 38, 2080.7],
+                ["Argon", "Ar", 18, 71, 1520.6],
+                ["Krypton", "Kr", 36, 88, 1350.8],
+                ["Xenon", "Xe", 54, 108, 1170.4],
+                ["Radon", "Rn", 86, 120, 1037.0],
+            ],
+        },
+    }
+
+    return group_map.get(group_choice, None)
+
+
+def create_csv(rows, raw_filename):
+    with open(raw_filename, mode="w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "element_name",
+            "symbol",
+            "atomic_number",
+            "atomic_radius_pm",
+            "first_ionization_energy_kj_per_mol"
+        ])
+        writer.writerows(rows)
+    print(f"\n{raw_filename} created.")
+
+
+def load_check_clean(raw_filename, fixed_filename):
+    pd.set_option("display.max_columns", None)
+    pd.set_option("display.width", 1200)
+
+    df = pd.read_csv(raw_filename)
+
+    print("\n=== RAW DATA CHECK ===")
+    print("Shape:", df.shape)
+    print("Columns:", list(df.columns))
+    print(df)
+    print("\nMissing values per column:")
+    print(df.isnull().sum())
+    print("\nData types:")
+    print(df.dtypes)
+
+    # Clean common issues
+    df.columns = df.columns.str.strip()
+
+    for col in ["element_name", "symbol"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+
+    numeric_cols = [
+        "atomic_number",
+        "atomic_radius_pm",
+        "first_ionization_energy_kj_per_mol"
+    ]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    print("\n=== CLEANED DATA CHECK ===")
+    print(df)
+    print("\nMissing values after cleaning:")
+    print(df.isnull().sum())
+    print("\nData types after cleaning:")
+    print(df.dtypes)
+
+    df.to_csv(fixed_filename, index=False, encoding="utf-8")
+    print(f"\nSaved cleaned file as {fixed_filename}")
+
+    df = df.dropna(subset=["atomic_radius_pm", "first_ionization_energy_kj_per_mol"]).copy()
+    return df
+
+
+def interactive_kmeans_plot(df, title_prefix):
+    X = df[["atomic_radius_pm", "first_ionization_energy_kj_per_mol"]]
+
+    print("\nInteractive KMeans clustering started.")
+    print("Enter an integer k (e.g., 2, 3, 4) or type 'q' to quit.")
+
+    while True:
+        user_input = input("\nEnter k (or q to stop): ").strip().lower()
+
+        if user_input in ("q", "quit", "stop", "exit"):
+            print("Done clustering.")
+            break
+
+        try:
+            k = int(user_input)
+        except ValueError:
+            print("Invalid input. Please enter a whole number or 'q'.")
+            continue
+
+        if k < 1:
+            print("k must be at least 1.")
+            continue
+        if k > len(df):
+            print(f"k cannot be greater than number of data points ({len(df)}).")
+            continue
+
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+        df["cluster"] = kmeans.fit_predict(X)
+        centers = kmeans.cluster_centers_
+
+        print(f"\n=== RESULTS FOR k = {k} ===")
+        print(df[["element_name", "symbol", "cluster"]].sort_values("cluster").to_string(index=False))
+        print("\nCluster centers [atomic_radius_pm, first_ionization_energy_kj_per_mol]:")
+        print(centers)
+
+        plt.figure(figsize=(8.5, 5.5))
+        plt.scatter(
+            df["atomic_radius_pm"],
+            df["first_ionization_energy_kj_per_mol"],
+            c=df["cluster"],
+            cmap="tab10",
+            s=120,
+            edgecolors="black",
+            linewidths=0.7
+        )
+
+        for _, row in df.iterrows():
+            plt.text(
+                row["atomic_radius_pm"] + 1.2,
+                row["first_ionization_energy_kj_per_mol"] + 5,
+                row["symbol"],
+                fontsize=9
+            )
+
+        # Large black X cluster centers
+        plt.scatter(
+            centers[:, 0],
+            centers[:, 1],
+            marker="X",
+            s=340,
+            c="black",
+            linewidths=1.6,
+            label="Cluster centers"
+        )
+
+        plt.xlabel("Atomic Radius (pm)")
+        plt.ylabel("First Ionization Energy (kJ/mol)")
+        plt.title(f"{title_prefix}: KMeans Clustering (k={k})")
+        plt.grid(alpha=0.25)
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+
+def main():
+    print("Element Clustering Tool (Groups 1-8)")
+    print("1 = Group 1")
+    print("2 = Group 2")
+    print("3 = Group 3 (13)")
+    print("4 = Group 4 (14)")
+    print("5 = Group 5 (15)")
+    print("6 = Group 6 (16)")
+    print("7 = Group 7 (17)")
+    print("8 = Group 8 (18, Noble Gases)")
+
+    choice = input("Choose a group (1-8): ").strip()
+    group_info = get_group_data(choice)
+
+    if group_info is None:
+        print("Invalid choice. Please run again and enter a number from 1 to 8.")
+        return
+
+    rows = group_info["rows"]
+    raw_filename = group_info["raw"]
+    fixed_filename = group_info["fixed"]
+    title_prefix = group_info["title"]
+
+    create_csv(rows, raw_filename)
+    df = load_check_clean(raw_filename, fixed_filename)
+    interactive_kmeans_plot(df, title_prefix)
+
+
+if __name__ == "__main__":
+    main()
