@@ -1,0 +1,143 @@
+# Gradient-Descent.py
+# Step-by-step: noisy data -> linear regression -> MSE -> loss landscape
+
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LinearRegression
+
+# -----------------------------
+# 1) Preparation
+# -----------------------------
+# Create a folder for saved images (optional but useful for GitHub portfolio)
+output_dir = "Gradient-Descent"
+os.makedirs(output_dir, exist_ok=True)
+
+# Reproducibility (same random noise each run)
+np.random.seed(42)
+
+# -----------------------------
+# 2) Data Generation (noisy dataset)
+# -----------------------------
+# x-axis values from 0 to 10
+x = np.linspace(0, 10, 50)
+
+# True line: y = 2x + 5
+true_slope = 2
+true_intercept = 5
+y_true = true_slope * x + true_intercept
+
+# Add random noise to simulate messy real-world data
+noise = np.random.normal(loc=0, scale=2.0, size=x.shape)
+y_noisy = y_true + noise
+
+# Plot 1: noisy data + true-fit line
+plt.figure(figsize=(8, 5))
+plt.scatter(x, y_noisy, alpha=0.8, label="Noisy data")
+plt.plot(x, y_true, linewidth=2, label="True line: y = 2x + 5")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.title("Noisy Data and True Fit Line")
+plt.legend()
+plt.tight_layout()
+plt.savefig(os.path.join(output_dir, "01_noisy_data_true_line.png"), dpi=300)
+plt.show()
+
+# -----------------------------
+# 3) Model Training (LinearRegression)
+# -----------------------------
+# sklearn expects X to be 2D, so reshape x
+X = x.reshape(-1, 1)
+y = y_noisy
+
+# Create and train model
+model = LinearRegression()
+model.fit(X, y)
+
+# Best-fit predictions
+y_pred = model.predict(X)
+
+# Plot 2: noisy data + true line + best-fit line
+plt.figure(figsize=(8, 5))
+plt.scatter(x, y_noisy, alpha=0.8, label="Noisy data")
+plt.plot(x, y_true, linewidth=2, label="True line: y = 2x + 5")
+plt.plot(x, y_pred, linewidth=2, label="Best-fit line (LinearRegression)")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.title("True Fit Line vs Best-Fit Line")
+plt.legend()
+plt.tight_layout()
+plt.savefig(os.path.join(output_dir, "02_regression_scatterplot.png"), dpi=300)
+plt.show()
+
+# -----------------------------
+# 4) Check the Results (print slope/intercept)
+# -----------------------------
+learned_slope = model.coef_[0]
+learned_intercept = model.intercept_
+
+# Two lines of code to print what the model learned
+print("Slope learned by model:", learned_slope)
+print("Intercept learned by model:", learned_intercept)
+
+# -----------------------------
+# 5) Analysis (how close to true values?)
+# -----------------------------
+print("\nAnalysis:")
+print(f"True slope = {true_slope}, learned slope = {learned_slope:.4f}, difference = {learned_slope - true_slope:.4f}")
+print(f"True intercept = {true_intercept}, learned intercept = {learned_intercept:.4f}, difference = {learned_intercept - true_intercept:.4f}")
+
+# -----------------------------
+# 6) Calculate MSE function
+# -----------------------------
+def calculate_mse(slope, intercept, x_vals, y_vals, print_result=True):
+    """
+    Calculate mean squared error for line y = slope*x + intercept
+    """
+    y_est = slope * x_vals + intercept
+    mse = np.mean((y_vals - y_est) ** 2)
+    if print_result:
+        print(f"MSE for slope={slope:.4f}, intercept={intercept:.4f} -> {mse:.4f}")
+    return mse
+
+# Example: enter a random point (slope/intercept) and calculate MSE
+random_slope = np.random.uniform(-1, 5)
+random_intercept = np.random.uniform(0, 10)
+calculate_mse(random_slope, random_intercept, x, y_noisy)
+
+# -----------------------------
+# 7) Create the Loss Landscape (MSE over grid of slopes/intercepts)
+# -----------------------------
+# Build a grid of slope and intercept values
+slope_values = np.linspace(-1, 5, 200)
+intercept_values = np.linspace(0, 10, 200)
+
+SLOPE_GRID, INTERCEPT_GRID = np.meshgrid(slope_values, intercept_values)
+
+# Compute MSE at each grid point
+MSE_GRID = np.zeros_like(SLOPE_GRID)
+
+for i in range(SLOPE_GRID.shape[0]):
+    for j in range(SLOPE_GRID.shape[1]):
+        m = SLOPE_GRID[i, j]
+        b = INTERCEPT_GRID[i, j]
+        MSE_GRID[i, j] = calculate_mse(m, b, x, y_noisy, print_result=False)
+
+# Plot loss landscape (2D colorful surface / contour map)
+# Requirement: low MSE = yellow, high MSE = purple
+# 'plasma_r' reverses plasma so low values become yellow and high values become purple
+plt.figure(figsize=(9, 6))
+contour = plt.contourf(SLOPE_GRID, INTERCEPT_GRID, MSE_GRID, levels=60, cmap="plasma_r")
+plt.colorbar(contour, label="MSE")
+
+# Mark key points
+plt.scatter(true_slope, true_intercept, marker="x", s=120, label="True parameters (2, 5)")
+plt.scatter(learned_slope, learned_intercept, marker="o", s=60, label="Model fit")
+
+plt.xlabel("Slope")
+plt.ylabel("Intercept")
+plt.title("Loss Landscape (MSE) for y = mx + b")
+plt.legend()
+plt.tight_layout()
+plt.savefig(os.path.join(output_dir, "03_loss_landscape.png"), dpi=300)
+plt.show()
