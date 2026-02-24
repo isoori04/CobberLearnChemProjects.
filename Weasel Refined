@@ -1,0 +1,203 @@
+import os
+import random
+import string
+from typing import List, Tuple
+
+import matplotlib.pyplot as plt
+
+# Allowed characters: A-Z plus space
+CHARSET = string.ascii_uppercase + " "
+DEFAULT_TARGET = "METHINKS IT IS LIKE A WEASEL"
+
+
+def sanitize_target(text: str) -> str:
+    """
+    Convert to uppercase and replace unsupported characters with spaces.
+    This keeps the program compatible with the A-Z + space mutation alphabet.
+    """
+    text = text.upper()
+    return "".join(ch if ch in CHARSET else " " for ch in text)
+
+
+def fitness(candidate: str, target: str) -> int:
+    """
+    Score = number of exact character matches (including spaces).
+    Perfect score = len(target). For the default phrase, that is 28.
+    """
+    return sum(1 for c, t in zip(candidate, target) if c == t)
+
+
+def random_string(length: int, rng: random.Random) -> str:
+    """Create a random string of the given length using CHARSET."""
+    return "".join(rng.choice(CHARSET) for _ in range(length))
+
+
+def mutate(text: str, mutation_rate: float, rng: random.Random) -> str:
+    """
+    For each character, mutate with probability mutation_rate.
+    If mutated, replace with a random char from A-Z or space.
+    """
+    mutated_chars = []
+    for ch in text:
+        if rng.random() < mutation_rate:
+            mutated_chars.append(rng.choice(CHARSET))
+        else:
+            mutated_chars.append(ch)
+    return "".join(mutated_chars)
+
+
+def evolve_phrase(
+    target: str,
+    offspring_per_generation: int = 100,
+    mutation_rate: float = 0.05,
+    max_generations: int = 10000,
+    seed: int = None,
+) -> Tuple[str, int, List[int], List[str]]:
+    """
+    Evolution loop:
+      - Start with random parent
+      - Generate N offspring by mutating parent
+      - Keep best offspring
+      - Replace parent only if strictly better
+      - Track history for plotting/logging
+    Returns:
+      best_string, generations_run, fitness_history, best_string_history
+    """
+    rng = random.Random(seed)
+
+    parent = random_string(len(target), rng)
+    parent_score = fitness(parent, target)
+
+    # History includes generation 0 (initial random parent)
+    fitness_history = [parent_score]
+    best_string_history = [parent]
+
+    print(f"Gen 0 | Score {parent_score:>2}/{len(target)} | {parent}")
+
+    if parent_score == len(target):
+        return parent, 0, fitness_history, best_string_history
+
+    for gen in range(1, max_generations + 1):
+        best_offspring = None
+        best_offspring_score = -1
+
+        for _ in range(offspring_per_generation):
+            child = mutate(parent, mutation_rate, rng)
+            child_score = fitness(child, target)
+
+            if child_score > best_offspring_score:
+                best_offspring = child
+                best_offspring_score = child_score
+
+        # Replace only if better (as instructed)
+        if best_offspring_score > parent_score:
+            parent = best_offspring
+            parent_score = best_offspring_score
+
+        fitness_history.append(parent_score)
+        best_string_history.append(parent)
+
+        print(f"Gen {gen} | Score {parent_score:>2}/{len(target)} | {parent}")
+
+        if parent_score == len(target):
+            return parent, gen, fitness_history, best_string_history
+
+    return parent, max_generations, fitness_history, best_string_history
+
+
+def save_generation_log(
+    filepath: str,
+    target: str,
+    fitness_history: List[int],
+    best_string_history: List[str],
+) -> None:
+    """Save all generations to a text file."""
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write("WEASEL PROGRAM GENERATION LOG\n")
+        f.write("=" * 40 + "\n")
+        f.write(f"Target: {target}\n")
+        f.write(f"Target length (perfect score): {len(target)}\n\n")
+
+        for gen, (score, s) in enumerate(zip(fitness_history, best_string_history)):
+            f.write(f"Gen {gen:>5} | Score {score:>2}/{len(target)} | {s}\n")
+
+
+def save_fitness_plot(filepath: str, fitness_history: List[int], target_length: int) -> None:
+    """Plot and save fitness over generations."""
+    generations = list(range(len(fitness_history)))
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(generations, fitness_history, marker="o", markersize=2, linewidth=1)
+    plt.xlabel("Generation")
+    plt.ylabel("Best Fitness (matches)")
+    plt.title("Weasel Program: Fitness Over Time")
+    plt.ylim(0, target_length + 1)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(filepath, dpi=200)
+    plt.close()
+
+
+def get_user_target() -> str:
+    """
+    Console 'text entry box' (input prompt).
+    Press Enter to use the default phrase.
+    """
+    user_input = input(
+        f"Enter a target phrase (A-Z and spaces only), or press Enter for default:\n"
+        f"Default = {DEFAULT_TARGET}\n> "
+    ).strip()
+
+    if not user_input:
+        return DEFAULT_TARGET
+
+    cleaned = sanitize_target(user_input)
+    if cleaned != user_input.upper():
+        print("Note: Unsupported characters were replaced with spaces.")
+    return cleaned
+
+
+def main():
+    # Create/save everything in the same directory as this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # User-entered phrase (improvement option)
+    target = get_user_target()
+
+    # EA settings (match assignment defaults)
+    OFFSPRING_PER_GENERATION = 100
+    MUTATION_RATE = 0.05
+    MAX_GENERATIONS = 10000
+    SEED = None  # set an integer (e.g., 42) if you want repeatable runs
+
+    best, generations_run, fitness_history, best_string_history = evolve_phrase(
+        target=target,
+        offspring_per_generation=OFFSPRING_PER_GENERATION,
+        mutation_rate=MUTATION_RATE,
+        max_generations=MAX_GENERATIONS,
+        seed=SEED,
+    )
+
+    print("\n" + "=" * 60)
+    if best == target:
+        print("SUCCESS! Target phrase evolved.")
+    else:
+        print("Stopped before reaching perfect match.")
+    print(f"Final generation: {generations_run}")
+    print(f"Final score: {fitness_history[-1]}/{len(target)}")
+    print(f"Best string: {best}")
+    print("=" * 60)
+
+    # Improvement 1: Save all generations to text file
+    log_path = os.path.join(script_dir, "weasel_generations_log.txt")
+    save_generation_log(log_path, target, fitness_history, best_string_history)
+    print(f"Saved generation log to: {log_path}")
+
+    # Improvement 2 + 3: Plot fitness over time and save it automatically
+    plot_path = os.path.join(script_dir, "weasel_fitness_plot.png")
+    save_fitness_plot(plot_path, fitness_history, len(target))
+    print(f"Saved fitness plot to: {plot_path}")
+
+
+if __name__ == "__main__":
+    main()
