@@ -1,0 +1,155 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.neural_network import MLPRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+# -----------------------------
+# 1. Create dataset
+# -----------------------------
+data = {
+    "Compound": [
+        "Methane",
+        "Water",
+        "Propane",
+        "Ethanol",
+        "Formic Acid",
+        "Acetic Acid",
+        "Butane",
+        "Acetone",
+        "Benzene",
+        "Toluene",
+        "Octane"
+    ],
+    "MW": [16, 18, 44, 46, 46, 60, 58, 58, 78, 92, 114],
+    "BoilingPoint": [-161, 100, -42, 78, 101, 118, -1, 56, 80, 111, 125]
+}
+
+df = pd.DataFrame(data)
+X = df[["MW"]]
+y = df["BoilingPoint"]
+
+# -----------------------------
+# 2. Build baseline model
+# -----------------------------
+# This is your earlier 2-layer, 10-neuron model
+baseline_model = make_pipeline(
+    StandardScaler(),
+    MLPRegressor(
+        hidden_layer_sizes=(10, 10),
+        activation="relu",
+        max_iter=5000,
+        early_stopping=False,
+        tol=0.0,
+        n_iter_no_change=5000,
+        random_state=42
+    )
+)
+
+baseline_model.fit(X, y)
+baseline_pred = baseline_model.predict(X)
+
+baseline_mae = mean_absolute_error(y, baseline_pred)
+baseline_mse = mean_squared_error(y, baseline_pred)
+baseline_r2 = r2_score(y, baseline_pred)
+
+print("Baseline model: hidden_layer_sizes = (10, 10)")
+print(f"Baseline MAE: {baseline_mae:.4f}")
+print(f"Baseline MSE: {baseline_mse:.4f}")
+print(f"Baseline R^2: {baseline_r2:.4f}")
+print()
+
+# -----------------------------
+# 3. Helper functions
+# -----------------------------
+def get_integer_input(prompt_text, min_val, max_val):
+    while True:
+        try:
+            value = int(input(prompt_text))
+            if min_val <= value <= max_val:
+                return value
+            print(f"Please enter an integer from {min_val} to {max_val}.")
+        except ValueError:
+            print("Please enter a valid integer.")
+
+def build_custom_architecture():
+    num_layers = get_integer_input("How many hidden layers do you want? (1-4): ", 1, 4)
+
+    neurons = []
+    for i in range(num_layers):
+        n = get_integer_input(
+            f"How many neurons in layer {i+1}? (1-10): ",
+            1,
+            10
+        )
+        neurons.append(n)
+
+    return tuple(neurons)
+
+def train_custom_model(hidden_layers):
+    model = make_pipeline(
+        StandardScaler(),
+        MLPRegressor(
+            hidden_layer_sizes=hidden_layers,
+            activation="relu",
+            max_iter=5000,
+            early_stopping=False,
+            tol=0.0,
+            n_iter_no_change=5000,
+            random_state=42
+        )
+    )
+    model.fit(X, y)
+    preds = model.predict(X)
+    return model, preds
+
+def save_comparison_plot(custom_layers, custom_pred, baseline_pred):
+    plot_df = df.copy()
+    plot_df["BaselinePred"] = baseline_pred
+    plot_df["CustomPred"] = custom_pred
+    plot_df = plot_df.sort_values("MW")
+
+    plt.figure(figsize=(9, 6))
+    plt.scatter(df["MW"], df["BoilingPoint"], label="Observed data")
+    plt.plot(plot_df["MW"], plot_df["BaselinePred"], label="Baseline MLP (10,10)")
+    plt.plot(plot_df["MW"], plot_df["CustomPred"], label=f"Custom MLP {custom_layers}")
+
+    plt.xlabel("Molecular Weight")
+    plt.ylabel("Boiling Point")
+    plt.title("Neural Network Comparison: Baseline vs Custom Architecture")
+    plt.legend()
+    plt.tight_layout()
+
+    layer_text = "_".join(str(n) for n in custom_layers)
+    filename = f"mlp_comparison_layers_{layer_text}.png"
+    plt.savefig(filename, dpi=300)
+    plt.show()
+
+    print(f"Comparison plot saved as: {filename}")
+    print()
+
+# -----------------------------
+# 4. Main loop
+# -----------------------------
+while True:
+    custom_layers = build_custom_architecture()
+
+    custom_model, custom_pred = train_custom_model(custom_layers)
+
+    custom_mae = mean_absolute_error(y, custom_pred)
+    custom_mse = mean_squared_error(y, custom_pred)
+    custom_r2 = r2_score(y, custom_pred)
+
+    print("\nCustom model results")
+    print(f"Hidden layers: {custom_layers}")
+    print(f"MAE: {custom_mae:.4f}")
+    print(f"MSE: {custom_mse:.4f}")
+    print(f"R^2: {custom_r2:.4f}")
+
+    save_comparison_plot(custom_layers, custom_pred, baseline_pred)
+
+    again = input("Try a new neural network size? (yes/no): ").strip().lower()
+    if again not in ["yes", "y"]:
+        print("Done.")
+        break
