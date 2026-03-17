@@ -1,0 +1,126 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import convolve2d
+
+# ----------------------------
+# 1. Build the 5x5 image
+# ----------------------------
+image = np.array([
+    [0, 0, 1, 0, 0],
+    [0, 0, 1, 0, 0],
+    [1, 1, 1, 1, 1],
+    [0, 0, 1, 0, 0],
+    [0, 0, 1, 0, 0]
+])
+
+print("Input image:")
+print(image)
+print("Shape:", image.shape)
+
+# ----------------------------
+# 2. Create filters
+# ----------------------------
+horizontal_filter = np.array([
+    [ 1,  1,  1],
+    [ 0,  0,  0],
+    [-1, -1, -1]
+])
+
+vertical_filter = np.array([
+    [ 1,  0, -1],
+    [ 1,  0, -1],
+    [ 1,  0, -1]
+])
+
+diagonal_filter = np.array([
+    [ 1,  0,  0],
+    [ 0,  0,  0],
+    [ 0,  0, -1]
+])
+
+print("\nHorizontal filter:")
+print(horizontal_filter)
+
+print("\nVertical filter:")
+print(vertical_filter)
+
+print("\nDiagonal filter:")
+print(diagonal_filter)
+
+# ----------------------------
+# 3. Apply filters with padding
+# mode='same' keeps output same size
+# boundary='fill', fillvalue=0 adds zero-padding
+# ----------------------------
+horizontal_result = convolve2d(
+    image, horizontal_filter, mode='same', boundary='fill', fillvalue=0
+)
+
+vertical_result = convolve2d(
+    image, vertical_filter, mode='same', boundary='fill', fillvalue=0
+)
+
+diagonal_result = convolve2d(
+    image, diagonal_filter, mode='same', boundary='fill', fillvalue=0
+)
+
+print("\nHorizontal feature map:")
+print(horizontal_result)
+
+print("\nVertical feature map:")
+print(vertical_result)
+
+print("\nDiagonal feature map:")
+print(diagonal_result)
+
+# ----------------------------
+# 4. Manual convolution function
+# ----------------------------
+def manual_convolution(image, kernel):
+    image_h, image_w = image.shape
+    kernel_h, kernel_w = kernel.shape
+
+    # Flip kernel for true convolution
+    kernel = np.flipud(np.fliplr(kernel))
+
+    pad_h = kernel_h // 2
+    pad_w = kernel_w // 2
+
+    padded = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant')
+    output = np.zeros((image_h, image_w))
+
+    for i in range(image_h):
+        for j in range(image_w):
+            region = padded[i:i + kernel_h, j:j + kernel_w]
+            output[i, j] = np.sum(region * kernel)
+
+    return output
+
+manual_horizontal = manual_convolution(image, horizontal_filter)
+
+print("\nManual convolution result (horizontal filter):")
+print(manual_horizontal)
+
+# ----------------------------
+# 5. Visualize everything
+# ----------------------------
+fig, axes = plt.subplots(1, 4, figsize=(14, 4))
+
+axes[0].imshow(image, cmap='gray', vmin=-2, vmax=2)
+axes[0].set_title("Input Image")
+axes[0].axis("off")
+
+axes[1].imshow(horizontal_result, cmap='gray')
+axes[1].set_title("Horizontal Features")
+axes[1].axis("off")
+
+axes[2].imshow(vertical_result, cmap='gray')
+axes[2].set_title("Vertical Features")
+axes[2].axis("off")
+
+axes[3].imshow(diagonal_result, cmap='gray')
+axes[3].set_title("Diagonal Features")
+axes[3].axis("off")
+
+plt.tight_layout()
+plt.show()
