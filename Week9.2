@@ -1,0 +1,111 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+from tensorflow.keras.applications.vgg16 import VGG16, preprocess_input, decode_predictions
+from tensorflow.keras.preprocessing import image
+
+
+# -----------------------------------------------------------
+# Load the pre-trained VGG16 model
+# weights="imagenet" means the model already learned from
+# the ImageNet dataset, which contains millions of images
+# across 1000 object categories.
+# -----------------------------------------------------------
+model = VGG16(weights="imagenet")
+
+
+def load_and_prepare_image(img_path):
+    """
+    Loads an image from disk, resizes it to 224x224 pixels,
+    converts it to a NumPy array, expands dimensions to create
+    a batch of size 1, and preprocesses it for VGG16.
+    """
+    # Load image and resize to the input size expected by VGG16
+    img = image.load_img(img_path, target_size=(224, 224))
+
+    # Convert image to NumPy array
+    img_array = image.img_to_array(img)
+
+    # Expand dimensions to create a batch
+    # Shape changes from (224, 224, 3) to (1, 224, 224, 3)
+    img_batch = np.expand_dims(img_array, axis=0)
+
+    # Preprocess image for VGG16
+    processed_img = preprocess_input(img_batch)
+
+    return img, processed_img
+
+
+def predict_image(processed_img):
+    """
+    Uses the VGG16 model to make a prediction and returns the
+    decoded top 5 predictions.
+    """
+    predictions = model.predict(processed_img)
+    decoded = decode_predictions(predictions, top=5)[0]
+    return decoded
+
+
+def display_image(img, title="Input Image"):
+    """
+    Displays the input image using matplotlib.
+    """
+    plt.imshow(img)
+    plt.title(title)
+    plt.axis("off")
+    plt.show()
+
+
+def print_predictions(predictions, confidence_threshold=0.70):
+    """
+    Prints the top 5 predicted classes and their confidence scores.
+    Also checks whether the top prediction passes a confidence threshold.
+    """
+    print("\nTop 5 Predictions:")
+    for i, pred in enumerate(predictions, start=1):
+        imagenet_id, label, confidence = pred
+        print(f"{i}. {label}: {confidence * 100:.2f}%")
+
+    top_label = predictions[0][1]
+    top_confidence = predictions[0][2]
+
+    print("\nConfidence Threshold Check:")
+    if top_confidence >= confidence_threshold:
+        print(
+            f"Accepted prediction: {top_label} "
+            f"({top_confidence * 100:.2f}%) is above the "
+            f"{confidence_threshold * 100:.0f}% threshold."
+        )
+    else:
+        print(
+            f"Prediction not accepted: {top_label} "
+            f"({top_confidence * 100:.2f}%) is below the "
+            f"{confidence_threshold * 100:.0f}% threshold."
+        )
+
+
+def main():
+    # -------------------------------------------------------
+    # IMPORTANT:
+    # Replace this with the exact path to your image file.
+    # Use a raw string (r"...") on Windows to avoid path errors.
+    # Example:
+    # img_path = r"C:\Users\YourName\Pictures\elephant.jpg"
+    # -------------------------------------------------------
+    img_path = r"C:\Users\YourName\Pictures\elephant.jpg"
+
+    # Load and prepare the image
+    original_img, processed_img = load_and_prepare_image(img_path)
+
+    # Show the image
+    display_image(original_img, title="Image for Classification")
+
+    # Make prediction
+    predictions = predict_image(processed_img)
+
+    # Print results
+    print_predictions(predictions, confidence_threshold=0.70)
+
+
+if __name__ == "__main__":
+    main()
