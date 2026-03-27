@@ -1,0 +1,158 @@
+# cartpole_rl_loop.py
+
+import gymnasium as gym
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+def random_policy(state, rng):
+    """Choose 0 (left) or 1 (right) at random."""
+    return int(rng.integers(0, 2))
+
+
+def rule_based_policy(state):
+    """
+    Simple hand-written policy:
+    If the pole is leaning left, move left.
+    If the pole is leaning right, move right.
+
+    CartPole state = [cart position, cart velocity, pole angle, pole angular velocity]
+    """
+    pole_angle = state[2]
+    return 0 if pole_angle < 0 else 1
+
+
+def run_episodes(env_name, episodes=10, policy_name="random", seed=42):
+    """
+    Run multiple CartPole episodes and return lists of rewards and steps.
+    """
+    env = gym.make(env_name)
+    rng = np.random.default_rng(seed)
+
+    rewards = []
+    steps_per_episode = []
+
+    for episode in range(episodes):
+        state, info = env.reset(seed=seed + episode)
+        done = False
+        total_reward = 0
+        steps = 0
+
+        while not done:
+            if policy_name == "random":
+                action = random_policy(state, rng)
+            elif policy_name == "rule_based":
+                action = rule_based_policy(state)
+            else:
+                raise ValueError("policy_name must be 'random' or 'rule_based'.")
+
+            new_state, reward, terminated, truncated, info = env.step(action)
+            state = new_state
+            total_reward += reward
+            steps += 1
+
+            # In gymnasium, an episode ends if either terminated or truncated is True
+            done = terminated or truncated
+
+        rewards.append(total_reward)
+        steps_per_episode.append(steps)
+
+        print(
+            f"{policy_name.upper():>10} | Episode {episode + 1:2d} | "
+            f"Total Reward = {total_reward:6.1f} | Steps = {steps:3d}"
+        )
+
+    env.close()
+    return rewards, steps_per_episode
+
+
+def make_plots(random_rewards, random_steps, rule_rewards, rule_steps):
+    """Create and save graphs comparing the two approaches."""
+    episodes = np.arange(1, len(random_rewards) + 1)
+
+    # Reward comparison
+    plt.figure(figsize=(10, 5))
+    plt.plot(episodes, random_rewards, marker="o", label="Random Policy")
+    plt.plot(episodes, rule_rewards, marker="s", label="Rule-Based Policy")
+    plt.xlabel("Episode")
+    plt.ylabel("Total Reward")
+    plt.title("CartPole: Total Reward per Episode")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("cartpole_rewards_comparison.png", dpi=300)
+    plt.show()
+
+    # Step comparison
+    plt.figure(figsize=(10, 5))
+    plt.plot(episodes, random_steps, marker="o", label="Random Policy")
+    plt.plot(episodes, rule_steps, marker="s", label="Rule-Based Policy")
+    plt.xlabel("Episode")
+    plt.ylabel("Steps Before Episode End")
+    plt.title("CartPole: Steps per Episode")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("cartpole_steps_comparison.png", dpi=300)
+    plt.show()
+
+
+def print_summary(random_rewards, random_steps, rule_rewards, rule_steps):
+    """Print average performance for both policies."""
+    print("\n--- Summary ---")
+    print(f"Random policy average reward: {np.mean(random_rewards):.2f}")
+    print(f"Random policy average steps : {np.mean(random_steps):.2f}")
+    print(f"Rule-based average reward  : {np.mean(rule_rewards):.2f}")
+    print(f"Rule-based average steps   : {np.mean(rule_steps):.2f}")
+
+
+def main():
+    env_name = "CartPole-v1"
+
+    # Create the environment and inspect it
+    env = gym.make(env_name)
+    initial_state, info = env.reset(seed=42)
+
+    print("Environment:", env_name)
+    print("Observation space:", env.observation_space)
+    print("Action space:", env.action_space)
+    print("Initial state:", initial_state)
+
+    print("\nWhat CartPole represents:")
+    print(
+        "CartPole is a balancing problem where an agent moves a cart left or right "
+        "to keep a pole upright for as long as possible."
+    )
+    print(
+        "Like the titration problem from the chapter, it follows the same RL cycle: "
+        "observe the current state, choose an action, receive a reward, and move to a new state."
+    )
+
+    env.close()
+
+    print("\nRunning 10 episodes with RANDOM actions...\n")
+    random_rewards, random_steps = run_episodes(
+        env_name=env_name,
+        episodes=10,
+        policy_name="random",
+        seed=42
+    )
+
+    print("\nRunning 10 episodes with a RULE-BASED policy...\n")
+    rule_rewards, rule_steps = run_episodes(
+        env_name=env_name,
+        episodes=10,
+        policy_name="rule_based",
+        seed=142
+    )
+
+    print_summary(random_rewards, random_steps, rule_rewards, rule_steps)
+    make_plots(random_rewards, random_steps, rule_rewards, rule_steps)
+
+    print("\nSaved files:")
+    print("- cartpole_rewards_comparison.png")
+    print("- cartpole_steps_comparison.png")
+
+
+if __name__ == "__main__":
+    main()
