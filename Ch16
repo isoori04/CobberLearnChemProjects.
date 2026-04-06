@@ -1,0 +1,488 @@
+from __future__ import annotations
+
+from pathlib import Path
+import warnings
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
+from sklearn.datasets import fetch_california_housing
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.inspection import permutation_importance
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import GridSearchCV, cross_val_score, train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVR
+from sklearn.tree import DecisionTreeRegressor
+
+RANDOM_STATE = 42
+TEST_SIZE = 0.20
+SVR_TRAIN_LIMIT = 5000
+
+PROJECT_DIR = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+DATA_HOME = PROJECT_DIR / "scikit_learn_data"
+
+warnings.filterwarnings("ignore", category=UserWarning)
+sns.set_theme(style="whitegrid")
+
+
+def print_header(title: str) -> None:
+    print("\n" + "=" * 80)
+    print(title)
+    print("=" * 80)
+
+
+def load_dataset() -> tuple[pd.DataFrame, pd.Series, str]:
+    """
+    Load the California housing dataset as pandas objects.
+    The dataset is cached inside the project folder for convenience.
+    """
+    DATA_HOME.mkdir(parents=True, exist_ok=True)
+
+    try:
+        housing = fetch_california_housing(as_frame=True, data_home=DATA_HOME)
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not load the California housing dataset. "
+            "On the first run, scikit-learn may need internet access to download it. "
+            "After that, it will load from the local cache."
+        ) from exc
+
+    df = housing.frame.copy()
+    X = df[housing.feature_names].copy()
+    y = df["MedHouseVal"].copy()
+    description = housing.DESCR
+
+    return X, y, description
+
+
+def preview_dataset(X: pd.DataFrame, y: pd.Series, description: str) -> None:
+    print_header("DATASET OVERVIEW")
+
+    full_df = X.copy()
+    full_df["MedHouseVal"] = y
+
+    print("First 12 lines of the dataset description:")
+    print("-" * 80)
+    print("\n".join(description.splitlines()[:12]))
+    print("-" * 80)
+
+    print("\nSample rows:")
+    print(full_df.head().round(3).to_string(index=False))
+
+    print("\nSummary statistics:")
+    print(full_df.describe().round(3).to_string())
+
+    print("\nFeature names:")
+    print(", ".join(X.columns))
+
+    print("\nTarget note: MedHouseVal is measured in units of $100,000.")
+
+
+def save_histograms(X: pd.DataFrame, y: pd.Series) -> None:
+    print_header("SAVING HISTOGRAMS")
+
+    full_df = X.copy()
+    full_df["MedHouseVal"] = y
+
+    full_df.hist(figsize=(16, 10), bins=30, edgecolor="black")
+    plt.suptitle("California Housing Feature Distributions", fontsize=16)
+    plt.tight_layout()
+
+    output_path = PROJECT_DIR / "housing_histograms.png"
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"Saved: {output_path}")
+
+
+def save_correlation_heatmap(X: pd.DataFrame, y: pd.Series) -> pd.Series:
+    print_header("SAVING CORRELATION HEATMAP")
+
+    full_df = X.copy()
+    full_df["MedHouseVal"] = y
+    corr = full_df.corr(numeric_only=True)
+
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(corr, annot=True, cmap="coolwarm", fmt=".2f", square=True)
+    plt.title("California Housing Correlation Heatmap")
+    plt.tight_layout()
+
+    output_path = PROJECT_DIR / "housing_correlation_heatmap.png"
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"Saved: {output_path}")
+
+    target_corr = (
+        corr["MedHouseVal"]
+        .drop("MedHouseVal")
+        .sort_values(key=lambda s: s.abs(), ascending=False)
+    )
+    return target_corr
+
+
+def get_models() -> dict[str, object]:
+    """
+    Create the required regression models.
+    SVR is wrapped in a StandardScaler pipeline because it is scale-sensitive.
+    """
+    return {
+        "Linear Regression": LinearRegression(),
+        "Decision Tree Regressor": DecisionTreeRegressor(
+            random_state=RANDOM_STATE,
+            max_depth=12,
+        ),
+        "Random Forest Regressor": RandomForestRegressor(
+            n_estimators=200,
+            random_state=RANDOM_STATE,
+            n_jobs=-1,
+        ),
+        "Support Vector Regressor": Pipeline(
+            steps=[
+                ("scaler", StandardScaler()),
+                ("model", SVR(kernel="rbf", C=10.0, epsilon=0.1)),
+            ]
+        ),
+    }
+
+
+def evaluate_models(
+    X_train: pd.DataFrame,
+    X_test: pd.DataFrame,
+    y_train: pd.Series,
+    y_test: pd.Series,
+) -> tuple[pd.DataFrame, dict[str, object]]:
+    print_header("TRAINING AND EVALUATING MODELS")
+
+    models = get_models()
+    fitted_models: dict[str, object] = {}
+    results: list[dict[str, float | str]] = []
+
+    for name, model in models.items():
+        current_X_train = X_train
+        current_y_train = y_train
+
+        # Full RBF SVR can be slow on larger datasets, so limit training rows.
+        if name == "Support Vector Regressor" and len(X_train) > SVR_TRAIN_LIMIT:
+            current_X_train = X_train.sample(n=SVR_TRAIN_LIMIT, random_state=RANDOM_STATE)
+            current_y_train = y_train.loc[current_X_train.index]
+            print(
+                f"{name}: using a {SVR_TRAIN_LIMIT:,}-row training subset to keep runtime practical."
+            )
+
+        model.fit(current_X_train, current_y_train)
+        predictions = model.predict(X_test)
+
+        r2 = r2_score(y_test, predictions)
+        rmse = mean_squared_error(y_test, predictions, squared=False)
+
+        fitted_models[name] = model
+        results.append(
+            {
+                "Model": name,
+                "R2": r2,
+                "RMSE": rmse,
+            }
+        )
+
+        print(f"{name:<28} | R2 = {r2:>7.4f} | RMSE = {rmse:>7.4f}")
+
+    results_df = (
+        pd.DataFrame(results)
+        .sort_values(by="R2", ascending=False)
+        .reset_index(drop=True)
+    )
+    return results_df, fitted_models
+
+
+def tune_random_forest(X_train: pd.DataFrame, y_train: pd.Series) -> GridSearchCV:
+    """
+    Hyperparameter tuning enhancement for Random Forest.
+    """
+    print_header("HYPERPARAMETER TUNING: RANDOM FOREST")
+
+    param_grid = {
+        "n_estimators": [150, 300],
+        "max_depth": [None, 20],
+        "min_samples_split": [2, 5],
+    }
+
+    grid = GridSearchCV(
+        estimator=RandomForestRegressor(random_state=RANDOM_STATE, n_jobs=-1),
+        param_grid=param_grid,
+        scoring="r2",
+        cv=3,
+        n_jobs=-1,
+        verbose=0,
+    )
+
+    grid.fit(X_train, y_train)
+
+    print(f"Best cross-validated R2: {grid.best_score_:.4f}")
+    print(f"Best parameters: {grid.best_params_}")
+
+    return grid
+
+
+def evaluate_tuned_model(
+    tuned_model: object,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+) -> tuple[float, float]:
+    predictions = tuned_model.predict(X_test)
+    r2 = r2_score(y_test, predictions)
+    rmse = mean_squared_error(y_test, predictions, squared=False)
+
+    print(f"Tuned model test R2:   {r2:.4f}")
+    print(f"Tuned model test RMSE: {rmse:.4f}")
+
+    return r2, rmse
+
+
+def run_cross_validation(model_name: str, model: object, X: pd.DataFrame, y: pd.Series) -> None:
+    """
+    Cross-validation enhancement for more reliable model evaluation.
+    """
+    print_header("CROSS-VALIDATION")
+
+    current_X = X
+    current_y = y
+
+    if model_name == "Support Vector Regressor" and len(X) > SVR_TRAIN_LIMIT:
+        current_X = X.sample(n=SVR_TRAIN_LIMIT, random_state=RANDOM_STATE)
+        current_y = y.loc[current_X.index]
+        print("Using a subset for SVR cross-validation to keep runtime practical.")
+
+    cv_scores = cross_val_score(model, current_X, current_y, cv=5, scoring="r2", n_jobs=-1)
+
+    print(f"Fold R2 scores: {[round(score, 4) for score in cv_scores]}")
+    print(f"Mean CV R2:     {cv_scores.mean():.4f}")
+    print(f"Std. Dev. R2:   {cv_scores.std():.4f}")
+
+
+def save_predicted_vs_actual_plot(
+    model: object,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+) -> None:
+    print_header("SAVING PREDICTED VS. ACTUAL PLOT")
+
+    predictions = model.predict(X_test)
+
+    plt.figure(figsize=(8, 6))
+    plt.scatter(y_test, predictions, alpha=0.5)
+    line_min = min(y_test.min(), predictions.min())
+    line_max = max(y_test.max(), predictions.max())
+    plt.plot([line_min, line_max], [line_min, line_max], linestyle="--")
+
+    plt.xlabel("Actual Median House Value ($100,000s)")
+    plt.ylabel("Predicted Median House Value ($100,000s)")
+    plt.title("Predicted vs. Actual House Prices")
+    plt.tight_layout()
+
+    output_path = PROJECT_DIR / "predicted_vs_actual.png"
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"Saved: {output_path}")
+
+
+def save_feature_importance_plot(
+    model: object,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+) -> pd.DataFrame:
+    """
+    Use permutation importance so the feature ranking works with any final model.
+    """
+    print_header("CALCULATING FEATURE IMPORTANCE")
+
+    result = permutation_importance(
+        model,
+        X_test,
+        y_test,
+        n_repeats=10,
+        random_state=RANDOM_STATE,
+        n_jobs=-1,
+    )
+
+    importance_df = (
+        pd.DataFrame(
+            {
+                "Feature": X_test.columns,
+                "Importance": result.importances_mean,
+            }
+        )
+        .sort_values(by="Importance", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    plt.figure(figsize=(10, 6))
+    sns.barplot(data=importance_df, x="Importance", y="Feature")
+    plt.title("Permutation Feature Importance")
+    plt.tight_layout()
+
+    output_path = PROJECT_DIR / "feature_importance.png"
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"Saved: {output_path}")
+    print("\nMost important features:")
+    print(importance_df.round(4).to_string(index=False))
+
+    return importance_df
+
+
+def make_sample_predictions(model: object) -> None:
+    """
+    Predict prices for a few made-up example houses.
+    """
+    print_header("SAMPLE PREDICTIONS WITH THE BEST MODEL")
+
+    sample_houses = pd.DataFrame(
+        [
+            {
+                "MedInc": 8.5,
+                "HouseAge": 25.0,
+                "AveRooms": 6.5,
+                "AveBedrms": 1.0,
+                "Population": 1200.0,
+                "AveOccup": 2.8,
+                "Latitude": 34.05,
+                "Longitude": -118.25,
+            },
+            {
+                "MedInc": 3.2,
+                "HouseAge": 18.0,
+                "AveRooms": 5.0,
+                "AveBedrms": 1.1,
+                "Population": 2400.0,
+                "AveOccup": 3.5,
+                "Latitude": 36.77,
+                "Longitude": -119.42,
+            },
+            {
+                "MedInc": 2.1,
+                "HouseAge": 35.0,
+                "AveRooms": 4.2,
+                "AveBedrms": 1.2,
+                "Population": 3200.0,
+                "AveOccup": 4.1,
+                "Latitude": 38.58,
+                "Longitude": -121.49,
+            },
+        ]
+    )
+
+    predictions = model.predict(sample_houses)
+
+    output = sample_houses.copy()
+    output["Predicted_MedHouseVal"] = predictions
+    output["Predicted_Dollars"] = predictions * 100000
+
+    print(output.round(3).to_string(index=False))
+
+
+def prompt_float(prompt_text: str, default_value: float) -> float:
+    while True:
+        raw = input(f"{prompt_text} [{default_value}]: ").strip()
+        if raw == "":
+            return float(default_value)
+        try:
+            return float(raw)
+        except ValueError:
+            print("Please enter a valid number.")
+
+
+def run_custom_prediction_loop(model: object, default_values: pd.Series) -> None:
+    """
+    Let the user enter custom values and get repeated predictions in one session.
+    """
+    print_header("CUSTOM PREDICTION LOOP")
+    print("Press Enter to accept the default value shown in brackets.\n")
+
+    feature_prompts = {
+        "MedInc": "Median income in block group",
+        "HouseAge": "Median house age",
+        "AveRooms": "Average number of rooms",
+        "AveBedrms": "Average number of bedrooms",
+        "Population": "Block group population",
+        "AveOccup": "Average occupants per household",
+        "Latitude": "Latitude",
+        "Longitude": "Longitude",
+    }
+
+    while True:
+        answer = input("Would you like to predict a custom house price? (y/n): ").strip().lower()
+        if answer not in {"y", "yes"}:
+            print("Finished. Thanks for exploring the California housing models!")
+            break
+
+        new_house = {}
+        for feature in default_values.index:
+            new_house[feature] = prompt_float(
+                feature_prompts[feature],
+                float(default_values[feature]),
+            )
+
+        new_house_df = pd.DataFrame([new_house])
+        prediction = model.predict(new_house_df)[0]
+
+        print("\nPrediction:")
+        print(f"Predicted median house value: {prediction:.3f} (in $100,000s)")
+        print(f"Predicted median house value: ${prediction * 100000:,.2f}\n")
+
+
+def main() -> None:
+    print_header("CALIFORNIA HOUSING REGRESSION PROJECT")
+
+    X, y, description = load_dataset()
+    preview_dataset(X, y, description)
+
+    save_histograms(X, y)
+    target_corr = save_correlation_heatmap(X, y)
+
+    print_header("CORRELATIONS WITH MEDIAN HOUSE VALUE")
+    print(target_corr.round(3).to_string())
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=TEST_SIZE,
+        random_state=RANDOM_STATE,
+    )
+
+    results_df, fitted_models = evaluate_models(X_train, X_test, y_train, y_test)
+
+    print_header("MODEL RANKING")
+    print(results_df.round(4).to_string(index=False))
+
+    baseline_best_name = results_df.loc[0, "Model"]
+    baseline_best_model = fitted_models[baseline_best_name]
+    baseline_best_r2 = float(results_df.loc[0, "R2"])
+
+    tuned_rf_grid = tune_random_forest(X_train, y_train)
+    tuned_rf_r2, _ = evaluate_tuned_model(tuned_rf_grid.best_estimator_, X_test, y_test)
+
+    final_model_name = baseline_best_name
+    final_model = baseline_best_model
+
+    if tuned_rf_r2 > baseline_best_r2:
+        final_model_name = "Tuned Random Forest Regressor"
+        final_model = tuned_rf_grid.best_estimator_
+
+    print_header("FINAL MODEL SELECTION")
+    print(f"Selected best model: {final_model_name}")
+
+    run_cross_validation(final_model_name, final_model, X, y)
+    save_predicted_vs_actual_plot(final_model, X_test, y_test)
+    save_feature_importance_plot(final_model, X_test, y_test)
+    make_sample_predictions(final_model)
+    run_custom_prediction_loop(final_model, X.median())
+
+
+if __name__ == "__main__":
+    main()
