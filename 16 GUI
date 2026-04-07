@@ -1,0 +1,360 @@
+from __future__ import annotations
+
+import tkinter as tk
+from tkinter import ttk, messagebox
+from pathlib import Path
+
+import pandas as pd
+from sklearn.datasets import fetch_california_housing
+from sklearn.ensemble import RandomForestRegressor
+
+
+APP_TITLE = "California Housing Price Predictor"
+RANDOM_STATE = 42
+
+PROJECT_DIR = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+DATA_HOME = PROJECT_DIR / "scikit_learn_data"
+
+
+class ToolTip:
+    """Simple tooltip for Tkinter widgets."""
+
+    def __init__(self, widget: tk.Widget, text: str) -> None:
+        self.widget = widget
+        self.text = text
+        self.tip_window: tk.Toplevel | None = None
+
+        self.widget.bind("<Enter>", self.show_tip)
+        self.widget.bind("<Leave>", self.hide_tip)
+
+    def show_tip(self, _event=None) -> None:
+        if self.tip_window is not None or not self.text:
+            return
+
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+
+        self.tip_window = tk.Toplevel(self.widget)
+        self.tip_window.wm_overrideredirect(True)
+        self.tip_window.wm_geometry(f"+{x}+{y}")
+
+        label = ttk.Label(
+            self.tip_window,
+            text=self.text,
+            justify="left",
+            relief="solid",
+            borderwidth=1,
+            padding=6,
+            wraplength=260,
+        )
+        label.pack()
+
+    def hide_tip(self, _event=None) -> None:
+        if self.tip_window is not None:
+            self.tip_window.destroy()
+            self.tip_window = None
+
+
+class HousingGUI:
+    def __init__(self, root: tk.Tk) -> None:
+        self.root = root
+        self.root.title(APP_TITLE)
+        self.root.geometry("760x560")
+        self.root.minsize(700, 500)
+
+        self.model: RandomForestRegressor | None = None
+        self.feature_order = [
+            "MedInc",
+            "HouseAge",
+            "AveRooms",
+            "AveBedrms",
+            "Population",
+            "AveOccup",
+            "Latitude",
+            "Longitude",
+        ]
+
+        self.feature_meta = {
+            "MedInc": {
+                "label": "Median Income",
+                "tooltip": "Median income in the block group.",
+                "default": "3.9",
+            },
+            "HouseAge": {
+                "label": "House Age",
+                "tooltip": "Median age of houses in the block group.",
+                "default": "29.0",
+            },
+            "AveRooms": {
+                "label": "Average Rooms",
+                "tooltip": "Average number of rooms per household.",
+                "default": "5.4",
+            },
+            "AveBedrms": {
+                "label": "Average Bedrooms",
+                "tooltip": "Average number of bedrooms per household.",
+                "default": "1.1",
+            },
+            "Population": {
+                "label": "Population",
+                "tooltip": "Population of the block group.",
+                "default": "1166.0",
+            },
+            "AveOccup": {
+                "label": "Average Occupancy",
+                "tooltip": "Average number of people living in each household.",
+                "default": "2.8",
+            },
+            "Latitude": {
+                "label": "Latitude",
+                "tooltip": "Latitude of the block group in California.",
+                "default": "34.26",
+            },
+            "Longitude": {
+                "label": "Longitude",
+                "tooltip": "Longitude of the block group in California.",
+                "default": "-118.49",
+            },
+        }
+
+        self.entry_vars: dict[str, tk.StringVar] = {}
+        self.result_var = tk.StringVar(value="Predicted price will appear here.")
+        self.status_var = tk.StringVar(value="Loading dataset and training model...")
+        self.sample_count_var = tk.StringVar(value="")
+        self.feature_count_var = tk.StringVar(value="")
+
+        self._build_interface()
+        self._load_data_and_train_model()
+
+        self.root.bind("<Return>", lambda event: self.predict_price())
+
+    def _build_interface(self) -> None:
+        main_frame = ttk.Frame(self.root, padding=16)
+        main_frame.pack(fill="both", expand=True)
+
+        title_label = ttk.Label(
+            main_frame,
+            text=APP_TITLE,
+            font=("TkDefaultFont", 16, "bold"),
+        )
+        title_label.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+
+        subtitle = ttk.Label(
+            main_frame,
+            text="Enter housing features below, then click Predict Price.",
+        )
+        subtitle.grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 14))
+
+        form_frame = ttk.LabelFrame(main_frame, text="Housing Features", padding=12)
+        form_frame.grid(row=2, column=0, columnspan=3, sticky="nsew")
+
+        for row_index, feature in enumerate(self.feature_order):
+            meta = self.feature_meta[feature]
+
+            label = ttk.Label(form_frame, text=meta["label"] + ":")
+            label.grid(row=row_index, column=0, sticky="w", padx=(0, 10), pady=6)
+
+            var = tk.StringVar(value=meta["default"])
+            self.entry_vars[feature] = var
+
+            entry = ttk.Entry(form_frame, textvariable=var, width=24)
+            entry.grid(row=row_index, column=1, sticky="ew", pady=6)
+
+            info_label = ttk.Label(form_frame, text="ⓘ")
+            info_label.grid(row=row_index, column=2, sticky="w", padx=(8, 0))
+            ToolTip(info_label, meta["tooltip"])
+            ToolTip(entry, meta["tooltip"])
+
+        form_frame.columnconfigure(1, weight=1)
+
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=3, column=0, columnspan=3, sticky="w", pady=14)
+
+        self.predict_button = ttk.Button(
+            button_frame,
+            text="Predict Price",
+            command=self.predict_price,
+        )
+        self.predict_button.grid(row=0, column=0, padx=(0, 10))
+
+        clear_button = ttk.Button(
+            button_frame,
+            text="Clear / Reset",
+            command=self.clear_fields,
+        )
+        clear_button.grid(row=0, column=1, padx=(0, 10))
+
+        use_defaults_button = ttk.Button(
+            button_frame,
+            text="Use Median Defaults",
+            command=self.use_dataset_medians,
+        )
+        use_defaults_button.grid(row=0, column=2)
+
+        result_frame = ttk.LabelFrame(main_frame, text="Prediction", padding=12)
+        result_frame.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 10))
+
+        result_label = ttk.Label(
+            result_frame,
+            textvariable=self.result_var,
+            font=("TkDefaultFont", 13, "bold"),
+            wraplength=650,
+            justify="left",
+        )
+        result_label.grid(row=0, column=0, sticky="w")
+
+        details_label = ttk.Label(
+            result_frame,
+            textvariable=self.sample_count_var,
+        )
+        details_label.grid(row=1, column=0, sticky="w", pady=(8, 0))
+
+        feature_label = ttk.Label(
+            result_frame,
+            textvariable=self.feature_count_var,
+        )
+        feature_label.grid(row=2, column=0, sticky="w")
+
+        status_frame = ttk.LabelFrame(main_frame, text="Status", padding=12)
+        status_frame.grid(row=5, column=0, columnspan=3, sticky="ew")
+
+        status_label = ttk.Label(
+            status_frame,
+            textvariable=self.status_var,
+            wraplength=650,
+            justify="left",
+        )
+        status_label.grid(row=0, column=0, sticky="w")
+
+        main_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(2, weight=1)
+
+    def _load_data_and_train_model(self) -> None:
+        try:
+            DATA_HOME.mkdir(parents=True, exist_ok=True)
+
+            housing = fetch_california_housing(as_frame=True, data_home=DATA_HOME)
+            self.X = housing.frame[housing.feature_names].copy()
+            self.y = housing.target.copy()
+
+            self.model = RandomForestRegressor(
+                n_estimators=300,
+                random_state=RANDOM_STATE,
+                n_jobs=-1,
+            )
+            self.model.fit(self.X, self.y)
+
+            self.dataset_medians = self.X.median(numeric_only=True)
+            self.sample_count_var.set(f"Dataset rows used for training: {len(self.X):,}")
+            self.feature_count_var.set(f"Number of model features: {len(self.feature_order)}")
+            self.status_var.set("Model loaded and ready for predictions.")
+            self.use_dataset_medians()
+
+        except Exception as exc:
+            self.model = None
+            self.status_var.set("Model could not be loaded.")
+            self.predict_button.config(state="disabled")
+            messagebox.showerror(
+                "Startup Error",
+                "The California housing dataset could not be loaded.\n\n"
+                "On the first run, scikit-learn may need internet access to download it.\n\n"
+                f"Technical details:\n{exc}",
+            )
+
+    def use_dataset_medians(self) -> None:
+        """Fill fields with the dataset's median values when available."""
+        if not hasattr(self, "dataset_medians"):
+            return
+
+        for feature in self.feature_order:
+            value = float(self.dataset_medians[feature])
+            self.entry_vars[feature].set(f"{value:.4f}")
+
+        self.result_var.set("Predicted price will appear here.")
+
+    def clear_fields(self) -> None:
+        """Reset the GUI to beginner-friendly defaults."""
+        for feature in self.feature_order:
+            self.entry_vars[feature].set(self.feature_meta[feature]["default"])
+
+        self.result_var.set("Predicted price will appear here.")
+        self.status_var.set("Fields reset. Enter values and click Predict Price.")
+
+    def _collect_user_input(self) -> pd.DataFrame:
+        """Validate user input and return a one-row DataFrame in model feature order."""
+        values: dict[str, float] = {}
+
+        for feature in self.feature_order:
+            raw = self.entry_vars[feature].get().strip()
+            label = self.feature_meta[feature]["label"]
+
+            if raw == "":
+                raise ValueError(f"{label} cannot be blank.")
+
+            try:
+                value = float(raw)
+            except ValueError as exc:
+                raise ValueError(f"{label} must be a number.") from exc
+
+            values[feature] = value
+
+        # Mild sanity checks for a more user-friendly GUI.
+        if values["AveRooms"] <= 0:
+            raise ValueError("Average Rooms must be greater than 0.")
+        if values["AveBedrms"] <= 0:
+            raise ValueError("Average Bedrooms must be greater than 0.")
+        if values["Population"] <= 0:
+            raise ValueError("Population must be greater than 0.")
+        if values["AveOccup"] <= 0:
+            raise ValueError("Average Occupancy must be greater than 0.")
+        if not (30.0 <= values["Latitude"] <= 45.0):
+            raise ValueError("Latitude should be a reasonable California value (about 30 to 45).")
+        if not (-125.0 <= values["Longitude"] <= -113.0):
+            raise ValueError("Longitude should be a reasonable California value (about -125 to -113).")
+
+        return pd.DataFrame([values], columns=self.feature_order)
+
+    def predict_price(self) -> None:
+        if self.model is None:
+            messagebox.showerror("Model Not Ready", "The model is not available yet.")
+            return
+
+        try:
+            input_df = self._collect_user_input()
+            prediction_units = float(self.model.predict(input_df)[0])
+            predicted_dollars = prediction_units * 100_000
+
+            self.result_var.set(
+                f"Predicted median house value: ${predicted_dollars:,.2f}"
+            )
+            self.status_var.set("Prediction completed successfully.")
+
+        except ValueError as exc:
+            self.result_var.set("Prediction could not be made.")
+            self.status_var.set("Please correct the input values and try again.")
+            messagebox.showerror("Invalid Input", str(exc))
+
+        except Exception as exc:
+            self.result_var.set("Prediction could not be made.")
+            self.status_var.set("An unexpected error occurred.")
+            messagebox.showerror(
+                "Prediction Error",
+                f"Something went wrong while making the prediction:\n{exc}",
+            )
+
+
+def main() -> None:
+    root = tk.Tk()
+    style = ttk.Style(root)
+
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+
+    app = HousingGUI(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
