@@ -1,0 +1,342 @@
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+PROJECT_DIR = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
+os.environ.setdefault("MPLCONFIGDIR", str(PROJECT_DIR / ".mplconfig"))
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.datasets import load_iris
+from sklearn.metrics import adjusted_rand_score, silhouette_score
+from sklearn.preprocessing import StandardScaler
+
+RANDOM_STATE = 42
+
+
+def get_output_dir() -> Path:
+    """
+    Create a reliable folder for generated plots.
+    Falls back to the current working directory if needed.
+    """
+    preferred = PROJECT_DIR / "clustering_outputs"
+    fallback = Path.cwd() / "clustering_outputs"
+
+    for candidate in (preferred, fallback):
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            return candidate
+        except OSError:
+            continue
+
+    raise OSError("Could not create an output directory for plot files.")
+
+
+OUTPUT_DIR = get_output_dir()
+
+
+def print_header(title: str) -> None:
+    print("\n" + "=" * 80)
+    print(title)
+    print("=" * 80)
+
+
+def prompt_with_default(prompt_text: str, default: str) -> str:
+    """
+    Read user input, but fall back to a default if the script is running
+    non-interactively or if the user simply presses Enter.
+    """
+    if not sys.stdin.isatty():
+        print(f"{prompt_text} [{default}] -> using default {default}")
+        return default
+
+    raw = input(f"{prompt_text} [{default}]: ").strip()
+    return raw if raw else default
+
+
+def prompt_int(prompt_text: str, default: int, minimum: int = 2, maximum: int = 10) -> int:
+    while True:
+        raw = prompt_with_default(prompt_text, str(default))
+        try:
+            value = int(raw)
+            if minimum <= value <= maximum:
+                return value
+            print(f"Please enter an integer between {minimum} and {maximum}.")
+        except ValueError:
+            print("Please enter a valid integer.")
+
+
+def prompt_yes_no(prompt_text: str, default: str = "y") -> bool:
+    default = default.lower()
+    while True:
+        raw = prompt_with_default(prompt_text, default).lower()
+        if raw in {"y", "yes"}:
+            return True
+        if raw in {"n", "no"}:
+            return False
+        print("Please enter y or n.")
+
+
+def load_iris_data() -> tuple[pd.DataFrame, pd.Series]:
+    iris = load_iris(as_frame=True)
+    feature_df = iris.data.copy()
+    species = iris.target.map(dict(enumerate(iris.target_names)))
+    species.name = "species"
+    return feature_df, species
+
+
+def explore_dataset(feature_df: pd.DataFrame, species: pd.Series) -> None:
+    print_header("IRIS DATASET OVERVIEW")
+    print(f"Samples: {len(feature_df)}")
+    print(f"Number of features: {feature_df.shape[1]}")
+    print(f"Feature names: {', '.join(feature_df.columns)}")
+
+    preview_df = feature_df.copy()
+    preview_df["species"] = species
+
+    print("\nFirst five rows:")
+    print(preview_df.head().to_string(index=False))
+
+    print("\nSummary statistics:")
+    print(feature_df.describe().round(3).to_string())
+
+
+def prepare_features(feature_df: pd.DataFrame, scale_features: bool) -> tuple[pd.DataFrame, StandardScaler | None]:
+    if scale_features:
+        scaler = StandardScaler()
+        scaled_array = scaler.fit_transform(feature_df)
+        prepared_df = pd.DataFrame(
+            scaled_array,
+            columns=feature_df.columns,
+            index=feature_df.index,
+        )
+        return prepared_df, scaler
+
+    return feature_df.copy(), None
+
+
+def run_kmeans(feature_df: pd.DataFrame, n_clusters: int) -> tuple[KMeans, pd.Series]:
+    model = KMeans(n_clusters=n_clusters, random_state=RANDOM_STATE, n_init=10)
+    labels = model.fit_predict(feature_df)
+    label_series = pd.Series(labels, index=feature_df.index, name="cluster")
+    return model, label_series
+
+
+def summarize_clusters(
+    original_features: pd.DataFrame,
+    species: pd.Series,
+    labels: pd.Series,
+    model: KMeans,
+    scaler: StandardScaler | None,
+) -> None:
+    print_header("CLUSTER ANALYSIS")
+
+    comparison_df = original_features.copy()
+    comparison_df["species"] = species
+    comparison_df["cluster"] = labels
+
+    count_table = pd.crosstab(comparison_df["cluster"], comparison_df["species"])
+    percent_table = (
+        pd.crosstab(
+            comparison_df["cluster"],
+            comparison_df["species"],
+            normalize="index",
+        )
+        * 100
+    )
+
+    print("Counts of each species inside each cluster:")
+    print(count_table.to_string())
+
+    print("\nPercentage of each species inside each cluster:")
+    print(percent_table.round(2).to_string())
+
+    cluster_to_species = count_table.idxmax(axis=1).to_dict()
+    mapped_species = labels.map(cluster_to_species)
+
+    majority_vote_accuracy = (mapped_species.values == species.values).mean() * 100
+    ari = adjusted_rand_score(species, labels)
+
+    print("\nMajority-vote mapping from cluster to species:")
+    for cluster_id, species_name in cluster_to_species.items():
+        print(f"Cluster {cluster_id} -> {species_name}")
+
+    print(f"\nMajority-vote agreement with true species: {majority_vote_accuracy:.2f}%")
+    print(f"Adjusted Rand Index: {ari:.4f}")
+
+    centers = model.cluster_centers_
+    if scaler is not None:
+        centers = scaler.inverse_transform(centers)
+
+    centers_df = pd.DataFrame(centers, columns=original_features.columns)
+    centers_df.index = [f"Cluster {i}" for i in range(len(centers_df))]
+
+    print("\nCluster centers in original feature units:")
+    print(centers_df.round(3).to_string())
+
+
+def save_cluster_scatter_plot(original_features: pd.DataFrame, labels: pd.Series, n_clusters: int) -> Path:
+    output_path = OUTPUT_DIR / "iris_clusters_petal_plot.png"
+
+    plt.figure(figsize=(8, 6))
+    for cluster_id in range(n_clusters):
+        mask = labels == cluster_id
+        plt.scatter(
+            original_features.loc[mask, "petal length (cm)"],
+            original_features.loc[mask, "petal width (cm)"],
+            label=f"Cluster {cluster_id}",
+            alpha=0.8,
+        )
+
+    plt.xlabel("Petal Length (cm)")
+    plt.ylabel("Petal Width (cm)")
+    plt.title("Iris K-Means Clusters: Petal Length vs Petal Width")
+    plt.legend(title="Cluster")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    return output_path
+
+
+def save_actual_species_plot(original_features: pd.DataFrame, species: pd.Series) -> Path:
+    output_path = OUTPUT_DIR / "iris_actual_species_petal_plot.png"
+
+    plt.figure(figsize=(8, 6))
+    for species_name in species.unique():
+        mask = species == species_name
+        plt.scatter(
+            original_features.loc[mask, "petal length (cm)"],
+            original_features.loc[mask, "petal width (cm)"],
+            label=species_name,
+            alpha=0.8,
+        )
+
+    plt.xlabel("Petal Length (cm)")
+    plt.ylabel("Petal Width (cm)")
+    plt.title("Actual Iris Species: Petal Length vs Petal Width")
+    plt.legend(title="Species")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    return output_path
+
+
+def save_3d_cluster_plot(original_features: pd.DataFrame, labels: pd.Series, n_clusters: int) -> Path:
+    output_path = OUTPUT_DIR / "iris_clusters_3d_plot.png"
+
+    fig = plt.figure(figsize=(9, 7))
+    ax = fig.add_subplot(111, projection="3d")
+
+    for cluster_id in range(n_clusters):
+        mask = labels == cluster_id
+        ax.scatter(
+            original_features.loc[mask, "sepal length (cm)"],
+            original_features.loc[mask, "petal length (cm)"],
+            original_features.loc[mask, "petal width (cm)"],
+            label=f"Cluster {cluster_id}",
+            alpha=0.8,
+        )
+
+    ax.set_xlabel("Sepal Length (cm)")
+    ax.set_ylabel("Petal Length (cm)")
+    ax.set_zlabel("Petal Width (cm)")
+    ax.set_title("3D Iris Clusters")
+    ax.legend(title="Cluster")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    return output_path
+
+
+def save_k_comparison_plot(feature_df: pd.DataFrame, k_min: int = 2, k_max: int = 8) -> Path:
+    output_path = OUTPUT_DIR / "iris_kmeans_k_comparison.png"
+
+    k_values = list(range(k_min, k_max + 1))
+    inertias = []
+    silhouettes = []
+
+    for k in k_values:
+        model = KMeans(n_clusters=k, random_state=RANDOM_STATE, n_init=10)
+        labels = model.fit_predict(feature_df)
+        inertias.append(model.inertia_)
+        silhouettes.append(silhouette_score(feature_df, labels))
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    axes[0].plot(k_values, inertias, marker="o")
+    axes[0].set_title("Elbow Plot (Inertia)")
+    axes[0].set_xlabel("Number of Clusters (k)")
+    axes[0].set_ylabel("Inertia")
+
+    axes[1].plot(k_values, silhouettes, marker="o")
+    axes[1].set_title("Silhouette Scores")
+    axes[1].set_xlabel("Number of Clusters (k)")
+    axes[1].set_ylabel("Silhouette Score")
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    return output_path
+
+
+def main() -> None:
+    print_header("IRIS K-MEANS CLUSTERING")
+
+    n_clusters = prompt_int(
+        "Enter the number of clusters to test",
+        default=3,
+        minimum=2,
+        maximum=10,
+    )
+    scale_features = prompt_yes_no(
+        "Standardize the features before clustering? (y/n)",
+        default="y",
+    )
+
+    original_features, species = load_iris_data()
+    explore_dataset(original_features, species)
+
+    print_header("PREPARING FEATURES")
+    print("Using only the four measurement columns for clustering.")
+    print("Species labels are kept aside for evaluation only.")
+    print(f"Feature scaling enabled: {scale_features}")
+
+    transformed_features, scaler = prepare_features(original_features, scale_features)
+
+    print_header("RUNNING K-MEANS")
+    model, labels = run_kmeans(transformed_features, n_clusters=n_clusters)
+    print(f"Chosen number of clusters: {n_clusters}")
+    print(f"Model inertia: {model.inertia_:.4f}")
+
+    summarize_clusters(original_features, species, labels, model, scaler)
+
+    print_header("SAVING VISUALIZATIONS")
+    cluster_plot = save_cluster_scatter_plot(original_features, labels, n_clusters)
+    actual_plot = save_actual_species_plot(original_features, species)
+    plot_3d = save_3d_cluster_plot(original_features, labels, n_clusters)
+    comparison_plot = save_k_comparison_plot(transformed_features, k_min=2, k_max=8)
+
+    print(f"Saved cluster scatter plot: {cluster_plot}")
+    print(f"Saved actual-species plot:  {actual_plot}")
+    print(f"Saved 3D cluster plot:      {plot_3d}")
+    print(f"Saved k-comparison plot:    {comparison_plot}")
+
+    print_header("INTERPRETATION")
+    print("Compare the cluster-colored plot with the actual-species plot.")
+    print("If the shapes look similar, the unsupervised model discovered a meaningful pattern.")
+    print("If you rerun the script with a different k or with scaling turned on or off,")
+    print("you can see how those choices change the clustering results.")
+
+
+if __name__ == "__main__":
+    main()
